@@ -1478,7 +1478,7 @@ function growBrick(c, r) {             // новая стена поднимае
 }
 function setWaterTrap(on) {            // омут: вода темнеет
   waterTrap = on;
-  MAT.water.color.copy(C(on ? 0x0b2229 : 0x1d5a66));
+  MAT.water.color.copy(C(on ? 0x163c46 : 0x1d5a66));
 }
 function updateGround(dt) {
   for (const m of sinking) { m.position.y -= dt * 0.55; m.rotation.x += dt * 0.5; }
