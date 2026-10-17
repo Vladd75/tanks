@@ -1857,8 +1857,12 @@ function removeBase(team) {
 // Работает, когда игра открыта с домашнего сервера (http://192.168.1.76:8810/), — он же пересылает сообщения.
 // «Ведущий» (зелёный) считает всю игру у себя и 20 раз в секунду рассылает картину: где какой танк, снаряд, ящик.
 // «Гость» (синий) ничего не считает — только рисует присланное и отправляет ведущему свои нажатия.
-const NET_OK = location.protocol.indexOf('http') === 0 && !/github\.io$/.test(location.hostname);
-const net = { ws: null, role: '', peer: false, lobby: false, guestCoins: 0, guestTank: '', seq: 0, known: new Set(), recs: {}, objs: new Map(), ev: [], last: 0, lastIn: '', lastInT: 0, levelDirty: false, ovTitle: '' };
+// Пересыльщик живёт на домашнем сервере. Открыли игру с него (дома) — подключаемся напрямую;
+// откуда угодно ещё (страничка GitHub, файл, вне дома) — через интернет, по адресу на duckdns.
+const AT_HOME_SERVER = location.port === '8810';
+const NET_RELAY = 'wss://vlad-dela.duckdns.org/tanks/ws';
+const relayUrl = () => AT_HOME_SERVER ? 'ws://' + location.host + '/ws' : NET_RELAY;
+const net = { ws: null, role: '', code: '', peer: false, lobby: false, guestCoins: 0, guestTank: '', seq: 0, known: new Set(), recs: {}, objs: new Map(), ev: [], last: 0, lastIn: '', lastInT: 0, levelDirty: false, ovTitle: '' };
 const localP = i => twoPlayers && net.role !== 'host' ? i : 0;      // каким танком управляет местная клавиша/кнопка
 function netSend(o) { if (net.ws && net.ws.readyState === 1) net.ws.send(JSON.stringify(o)); }
 function netClose() {
@@ -1866,28 +1870,42 @@ function netClose() {
   net.ws = null; net.role = ''; net.peer = false; net.ev = []; net.am = null; hudCache = '';
   if (w) { w.onclose = null; try { w.close(); } catch (e) {} }
 }
-function netInfo() {              // игра открыта не с домашнего сервера — по сети отсюда не сыграть
-  state = 'ask';
-  showOverlay('По сети', '<p>По сети с двух устройств играют <b>дома</b>, в одной сети Wi-Fi.</p>' +
-    '<p>На обоих устройствах откройте в браузере адрес<br><b>http://192.168.1.76:8810/</b><br>и там нажмите «По сети».</p>' +
-    '<p class="small">Здесь, по этой ссылке, можно играть одному, вдвоём на одном устройстве и в дуэль.</p>', [{ label: 'Понятно', fn: menu }], menu);
-}
 function netMenu() {
   state = 'ask';
-  showOverlay('По сети', '<p>Два устройства в одной сети Wi-Fi. На одном нажмите «Создать игру», на другом — «Подключиться».</p>',
-    [{ label: 'Создать игру', fn: () => netConnect('host') }, { label: 'Подключиться', cls: 'blue', fn: () => netConnect('join') }, { label: 'Назад', cls: 'gray', fn: menu }]);
+  showOverlay('По сети', '<p>Играть вдвоём с разных устройств — дома или через интернет.</p>' +
+    '<p class="small">Один нажимает «Создать игру» и получает код комнаты из 4 цифр. Второй нажимает «Подключиться» и вводит этот код.</p>',
+    [{ label: 'Создать игру', fn: () => netConnect('host') }, { label: 'Подключиться', cls: 'blue', fn: () => netJoinAsk('') }, { label: 'Назад', cls: 'gray', fn: modeMenu }]);
 }
-function netConnect(role) {
+function netJoinAsk(note) {
+  state = 'ask';
+  const join = () => { const c = ($('roomCode').value || '').replace(/\D/g, ''); if (c.length === 4) netConnect('join', c); else netJoinAsk('Код — это четыре цифры.'); };
+  showOverlay('Подключиться', (note ? '<p><b>' + note + '</b></p>' : '') + '<p>Введи код комнаты — он виден у того, кто создал игру.</p>' +
+    '<input id="roomCode" class="ideaField" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="0000" style="text-align:center; font-size:30px; letter-spacing:10px; max-width:220px">',
+    [{ label: 'Подключиться', fn: join }, { label: 'Назад', cls: 'gray', fn: netMenu }]);
+  $('roomCode').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+  setTimeout(() => { if ($('roomCode')) $('roomCode').focus(); }, 60);
+}
+function netFail(role, code) {      // до сервера не достучались
+  state = 'ask';
+  showOverlay('Нет связи', '<p>Не удалось связаться с сервером игры.</p>' +
+    '<p class="small">• С 1:30 до 6:00 сервер спит — в это время по сети не играют.<br>' +
+    (AT_HOME_SERVER ? '' : '• Если ты дома в Wi-Fi у Влада — открой адрес <b>http://192.168.1.76:8810/</b>, через интернет из дома не пускает.<br>') +
+    '• Проверь интернет и попробуй ещё раз.</p>',
+    [{ label: 'Ещё раз', fn: () => role === 'host' ? netConnect('host') : netConnect('join', code) }, { label: 'Назад', cls: 'gray', fn: netMenu }]);
+}
+function netConnect(role, code) {
   netClose();
   state = 'ask';
   showOverlay('По сети', '<p>Соединяюсь…</p>', [{ label: 'Отмена', cls: 'gray', fn: menu }]);
-  const w = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  let w, opened = false;
+  try { w = new WebSocket(relayUrl()); } catch (e) { netFail(role, code); return; }
   net.ws = w;
-  w.onopen = () => w.send(JSON.stringify({ t: role }));
+  w.onopen = () => { opened = true; w.send(JSON.stringify({ t: role, code })); };
   w.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } netMessage(m); };
   w.onerror = () => {};
   w.onclose = () => {
     if (net.ws !== w) return;
+    if (!opened) { net.ws = null; netFail(role, code); return; }
     const guest = net.role !== 'host', lobby = net.lobby;
     netClose();
     if (guest || lobby) { menu(); banner('Связь прервалась', 1800); } else banner('Второй игрок отключился', 1800);
@@ -1896,18 +1914,21 @@ function netConnect(role) {
 function netLobby() {
   state = 'ask'; net.lobby = true;
   const go = fn => () => { net.lobby = false; fn(); };
-  if (!net.peer) showOverlay('По сети', '<p>Игра создана. Ждём второго игрока…</p><p class="small">На втором устройстве откройте в браузере адрес <b>' + location.host + '</b> и нажмите «По сети» → «Подключиться».</p>', [{ label: 'Отмена', cls: 'gray', fn: menu }]);
+  if (!net.peer) showOverlay('По сети', '<p>Игра создана. Код комнаты:</p><p style="font-size:44px; font-weight:800; letter-spacing:10px; margin:4px 0; color:#3a5a26">' + net.code + '</p>' +
+    '<p class="small">Скажи код второму игроку: пусть откроет игру, нажмёт «По сети» → «Подключиться» и введёт его. Ждём…</p>', [{ label: 'Отмена', cls: 'gray', fn: menu }]);
   else showOverlay('Второй игрок на месте!', '<p>Вы — зелёный, он — синий. Во что играем?</p>',
     [{ label: 'Вместе', cls: 'blue', fn: go(() => startGame(true)) }, { label: 'Дуэль', cls: 'red', fn: go(startDuel) }, { label: 'Отмена', cls: 'gray', fn: menu }]);
 }
 function netMessage(m) {
   if (m.t === 'role') {
-    net.role = m.role;
+    net.role = m.role; net.code = m.code || '';
     if (m.role === 'host') { net.peer = !!m.guest; netLobby(); }
     else { netSend({ t: 'tank', tank: gameMode === 'hangar' ? save.tank : 'medium' }); showOverlay('По сети', '<p>Подключено. Ждём, пока ведущий начнёт игру…</p>', [{ label: 'Выйти', cls: 'gray', fn: menu }]); }
   } else if (m.t === 'nohost') {
-    showOverlay('По сети', '<p>Игру ещё никто не создал. Пусть на первом устройстве нажмут «Создать игру» — и попробуйте снова.</p>',
-      [{ label: 'Ещё раз', fn: () => netConnect('join') }, { label: 'Назад', cls: 'gray', fn: menu }]);
+    netClose(); netJoinAsk('Комнаты с таким кодом нет. Проверь код — или пусть ведущий нажмёт «Создать игру».');
+  } else if (m.t === 'full') {
+    netClose(); state = 'ask';
+    showOverlay('По сети', '<p>Сервер сейчас занят другими играми. Попробуй чуть позже.</p>', [{ label: 'Назад', cls: 'gray', fn: netMenu }]);
   } else if (m.t === 'peer') {
     net.peer = true; net.known.clear(); net.levelDirty = true;
     if (net.lobby) netLobby(); else banner('Второй игрок подключился', 1500);
@@ -2191,7 +2212,7 @@ function modeMenu() {             // как играть: одному, вдво
   const title = gameMode === 'hangar' ? 'Ангар — ' + TANKS[save.tank].name.toLowerCase() + ' ' + TANKS[save.tank].proto : 'Обычная игра';
   showOverlay(title, '<p>Как играем?</p>',
     [{ label: '1 игрок', fn: () => startGame(false) }, { label: '2 игрока вместе', cls: 'blue', fn: () => startGame(true) }, { label: 'Дуэль', cls: 'red', fn: startDuel },
-     { label: 'По сети', cls: 'blue', fn: NET_OK ? netMenu : netInfo }, { label: 'Назад', cls: 'gray', fn: gameMode === 'hangar' ? showHangar : menu }]);
+     { label: 'По сети', cls: 'blue', fn: netMenu }, { label: 'Назад', cls: 'gray', fn: gameMode === 'hangar' ? showHangar : menu }]);
   $('help').textContent = 'Клавиша 1 — один игрок, 2 — вдвоём вместе, 3 — дуэль друг против друга';
 }
 function showHangar() {           // ангар: выбрать или купить танк за токены; выбранный остаётся навсегда
@@ -2233,19 +2254,26 @@ function sendIdea() {
   if (text.length < 3) { msg.textContent = 'Сначала напиши идею.'; return; }
   try { localStorage.setItem('tanks3d_name', name); } catch (e) {}
   const full = 'Идея для «Танчиков»' + (name ? ' от ' + name : '') + ': ' + text;
-  if (NET_OK) {
-    msg.textContent = 'Отправляю…';
-    let done = false;
-    const w = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-    w.onopen = () => w.send(JSON.stringify({ t: 'idea', name, text }));
-    w.onmessage = e => { if (String(e.data).indexOf('ideaok') >= 0) { done = true; w.close(); ideaThanks('Идея записана. Спасибо!'); } };
-    w.onerror = w.onclose = () => { if (!done && $('ideaMsg')) $('ideaMsg').textContent = 'Не получилось отправить — сервер не отвечает. Попробуй позже.'; };
-  } else if (navigator.share) {
-    navigator.share({ text: full }).then(() => ideaThanks('Спасибо!'), () => {});
-  } else if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(full).then(() => ideaThanks('Идея скопирована. Вставь её в сообщение и отправь тому, кто дал тебе ссылку на игру.'),
-      () => { msg.textContent = 'Выдели текст, скопируй и отправь тому, кто дал тебе ссылку на игру.'; });
-  } else msg.textContent = 'Выдели текст, скопируй и отправь тому, кто дал тебе ссылку на игру.';
+  msg.textContent = 'Отправляю…';
+  let done = false, w;
+  const fallback = () => {
+    if (done || !$('ideaMsg')) return;
+    done = true;
+    if (navigator.share) navigator.share({ text: full }).then(() => ideaThanks('Спасибо!'), () => { $('ideaMsg').textContent = 'Сервер не ответил. Попробуй позже.'; });
+    else if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(full).then(() => ideaThanks('Сервер не ответил, поэтому идея скопирована. Вставь её в сообщение и отправь тому, кто дал тебе ссылку на игру.'),
+        () => { $('ideaMsg').textContent = 'Сервер не ответил. Выдели текст, скопируй и отправь тому, кто дал тебе ссылку на игру.'; });
+    else $('ideaMsg').textContent = 'Сервер не ответил. Выдели текст, скопируй и отправь тому, кто дал тебе ссылку на игру.';
+  };
+  try { w = new WebSocket(relayUrl()); } catch (e) { fallback(); return; }
+  w.onopen = () => w.send(JSON.stringify({ t: 'idea', name, text }));
+  w.onmessage = e => {
+    let m = {}; try { m = JSON.parse(e.data); } catch (x) {}
+    done = true; w.close();
+    if (m.t === 'ideaok') ideaThanks('Идея записана. Спасибо!');
+    else if ($('ideaMsg')) $('ideaMsg').textContent = m.why === 'often' ? 'Не так часто — подожди немного и отправь снова.' : m.why === 'limit' ? 'На сегодня идей уже очень много — попробуй завтра.' : 'Не получилось записать. Попробуй позже.';
+  };
+  w.onerror = w.onclose = fallback;
 }
 function showHelp() {              // подробная справка — отдельным окном, чтобы меню оставалось коротким
   const P = t => '<p class="small">' + t + '</p>';
