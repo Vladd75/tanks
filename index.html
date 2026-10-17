@@ -370,7 +370,8 @@ const BOSSES = [
 const TIGER_CAMO = ['#e6eaea', '#c3ccd0', '#9aa5aa'];
 
 // ───────────────────────── Магазин ─────────────────────────
-// costs — цена каждой следующей ступени; чем выше ступень, тем дороже
+// costs — цена каждой следующей ступени; чем выше ступень, тем дороже; hangarCosts — своя цена в «Ангаре»
+const costsOf = u => gameMode === 'hangar' && u.hangarCosts ? u.hangarCosts : u.costs;
 const SHOP = [
   { key: 'gun',   name: 'Мощная пушка',        desc: 'урон снаряда +1 (нужна против босса и тяжёлых)', costs: [200, 600, 1500, 3000] },
   { key: 'rate',  name: 'Быстрая перезарядка', desc: 'танк стреляет чаще',                              costs: [150, 400, 900, 2000] },
@@ -378,7 +379,7 @@ const SHOP = [
   { key: 'shell', name: 'Быстрый снаряд',      desc: 'снаряд летит быстрее',                            costs: [100, 300, 700] },
   { key: 'life',  name: 'Запасная жизнь',      desc: 'на одну жизнь больше с самого начала',            costs: [200, 500, 1200] },
   { key: 'armor', name: 'Броня с завода',      desc: 'каждый раз выезжаешь уже в броне',                costs: [300, 900] },
-  { key: 'twin',  name: 'Две пушки навсегда',  desc: 'спаренный ствол больше не пропадает',             costs: [1200] },
+  { key: 'twin',  name: 'Две пушки навсегда',  desc: 'спаренный ствол больше не пропадает',             costs: [1200], hangarCosts: [2500] },
   { key: 'coins', name: 'Трофейщик',           desc: 'монет за врагов на четверть больше',              costs: [250, 700, 1600] },
   { key: 'rocket', name: 'Ракетная установка', desc: 'ракеты сами находят самолёт или вертолёт: 2, 4, 6 штук на уровень', costs: [600, 1200, 2400] },
 ];
@@ -1178,7 +1179,7 @@ function spawnEnemy() {
     const [c, r] = ENEMY_SPAWNS[(start + i) % ENEMY_SPAWNS.length], x = c + 0.5, z = r + 0.5;
     const busy = players.concat(enemies).some(o => o.alive && Math.abs(o.x - x) < 0.6 + (o.half || HALF) && Math.abs(o.z - z) < 0.6 + (o.half || HALF));
     if (busy) continue;
-    const hp = K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && k === 2 ? 1 : 0);
+    const hp = K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && (k === 0 || k === 2) ? 1 : 0);
     const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed * (1 + 0.03 * tier) * (gameMode === 'hangar' ? 1.1 : 1), hp, maxHp: hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
       debris: K.camo[0], aiTimer: rand(0.6, 1.6), fireTimer: rand(1, 2), stuck: 0, frozen: false, mesh: makeTankMesh(K.camo, K.scale) };
     e.mesh.position.set(x, 0, z); e.mesh.rotation.y = -Math.PI;
@@ -2340,7 +2341,7 @@ function renderShop() {
   if (hangar) rows += '<div class="shopRow"><div><b>Токены для ангара</b><br><small>' + TOKEN_PRICE + ' монет = 1 токен. Токены остаются навсегда, на них покупают танки.</small></div><span>' +
     [1, 10].map(n => '<button class="shopBuy" data-ex="' + n + '"' + (save.coins < n * TOKEN_PRICE ? ' disabled' : '') + '>' + n + ' за ' + n * TOKEN_PRICE + '</button>').join(' ') + '</span></div>';
   rows += SHOP.map((u, i) => {
-    const lv = save.up[u.key], max = u.costs.length, done = lv >= max, cost = done ? 0 : u.costs[lv];
+    const lv = save.up[u.key], max = u.costs.length, done = lv >= max, cost = done ? 0 : costsOf(u)[lv];
     const desc = hangar && u.key === 'gun' ? 'урон снаряда +0,25 за ступень' : u.desc;
     return '<div class="shopRow"><div><b>' + u.name + '</b> <span class="pips">' + '●'.repeat(lv) + '○'.repeat(max - lv) + '</span><br><small>' + desc + '</small></div>' +
       (done ? '<span class="shopMax">максимум</span>' : '<button class="shopBuy" data-i="' + i + '"' + (save.coins < cost ? ' disabled' : '') + '>' + cost + ' монет</button>') + '</div>';
@@ -2358,9 +2359,9 @@ function exchange(n) {              // монеты → токены (тольк
 }
 function buy(i) {
   const u = SHOP[i], lv = save.up[u.key];
-  if (lv >= u.costs.length || save.coins < u.costs[lv]) return;
+  if (lv >= u.costs.length || save.coins < costsOf(u)[lv]) return;
   const top = $('ovText').scrollTop;
-  save.coins -= u.costs[lv]; save.up[u.key]++;
+  save.coins -= costsOf(u)[lv]; save.up[u.key]++;
   if (u.key === 'life') for (const p of players) p.lives++;
   storeSave(); SFX.pickup(); renderShop();
   $('ovText').scrollTop = top;
