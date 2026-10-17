@@ -1157,7 +1157,7 @@ function fire(t) {
 }
 
 function newPlayer(idx) {
-  return { idx, tank: gameMode !== 'hangar' ? 'medium' : idx === 0 ? save.tank : (net.role === 'host' && net.guestTank) || 'medium', team: duel ? idx : 0, isEnemy: false, lives: 3 + up('life'), alive: false, respawn: 0, x: 0, z: 0, dir: 0, speed: PLAYER_SPEED, hp: 1, cool: 0, shield: 0, born: 0, armor: 0, twin: false, speedT: 0, rockets: 0, ammo: MAG_SIZE, reload: 0, scale: 1, recoil: 0, fxT: 0, debris: PLAYER_CAMO[idx][0], mesh: null };
+  return { idx, tank: gameMode !== 'hangar' ? 'medium' : idx === 0 ? (sessionTank || save.tank) : (net.role === 'host' && net.guestTank) || 'medium', team: duel ? idx : 0, isEnemy: false, lives: 3 + up('life'), alive: false, respawn: 0, x: 0, z: 0, dir: 0, speed: PLAYER_SPEED, hp: 1, cool: 0, shield: 0, born: 0, armor: 0, twin: false, speedT: 0, rockets: 0, ammo: MAG_SIZE, reload: 0, scale: 1, recoil: 0, fxT: 0, debris: PLAYER_CAMO[idx][0], mesh: null };
 }
 function spawnPlayer(p) {
   const [c, r] = (duel ? DUEL_SPAWNS : PLAYER_SPAWNS)[p.idx];
@@ -1862,6 +1862,15 @@ function removeBase(team) {
 const AT_HOME_SERVER = location.port === '8810';
 const NET_RELAY = 'wss://vlad-dela.duckdns.org/tanks/ws';
 const relayUrl = () => AT_HOME_SERVER ? 'ws://' + location.host + '/ws' : NET_RELAY;
+// Дома в Wi-Fi через интернет не пускает (роутер не делает «петлю»). Тогда игра переходит на домашний адрес
+// и там сама продолжает: создаёт игру или подключается по тому же коду, на том же танке.
+const HOME_URL = 'http://192.168.1.76:8810/';
+function goHome(role, code) {
+  location.href = HOME_URL + '#net=' + role + (code ? '&code=' + code : '') + '&mode=' + gameMode + (gameMode === 'hangar' ? '&tank=' + (sessionTank || save.tank) : '');
+}
+const handoff = {};                 // что передали в адресе при переходе домой
+try { location.hash.replace(/^#/, '').split('&').forEach(kv => { const [k, v] = kv.split('='); if (k) handoff[k] = decodeURIComponent(v || ''); }); } catch (e) {}
+let sessionTank = '';               // танк, на котором пришли с другого адреса (у домашнего адреса свой ангар)
 const net = { ws: null, role: '', code: '', peer: false, lobby: false, guestCoins: 0, guestTank: '', seq: 0, known: new Set(), recs: {}, objs: new Map(), ev: [], last: 0, lastIn: '', lastInT: 0, levelDirty: false, ovTitle: '' };
 const localP = i => twoPlayers && net.role !== 'host' ? i : 0;      // каким танком управляет местная клавиша/кнопка
 function netSend(o) { if (net.ws && net.ws.readyState === 1) net.ws.send(JSON.stringify(o)); }
@@ -1887,11 +1896,14 @@ function netJoinAsk(note) {
 }
 function netFail(role, code) {      // до сервера не достучались
   state = 'ask';
+  const again = () => role === 'host' ? netConnect('host') : netConnect('join', code);
   showOverlay('Нет связи', '<p>Не удалось связаться с сервером игры.</p>' +
+    (AT_HOME_SERVER ? '' : '<p><b>Ты дома, в Wi-Fi у Влада?</b> Нажми «Мы дома, в Wi-Fi» — игра перейдёт на домашний адрес и продолжит сама.</p>') +
     '<p class="small">• С 1:30 до 6:00 сервер спит — в это время по сети не играют.<br>' +
-    (AT_HOME_SERVER ? '' : '• Если ты дома в Wi-Fi у Влада — открой адрес <b>http://192.168.1.76:8810/</b>, через интернет из дома не пускает.<br>') +
+    '• Если на телефоне включён «Частный DNS» (в настройках сети) — выключи его на время игры.<br>' +
     '• Проверь интернет и попробуй ещё раз.</p>',
-    [{ label: 'Ещё раз', fn: () => role === 'host' ? netConnect('host') : netConnect('join', code) }, { label: 'Назад', cls: 'gray', fn: netMenu }]);
+    (AT_HOME_SERVER ? [] : [{ label: 'Мы дома, в Wi-Fi', fn: () => goHome(role, code) }])
+      .concat([{ label: 'Ещё раз', cls: 'blue', fn: again }, { label: 'Назад', cls: 'gray', fn: netMenu }]));
 }
 function netConnect(role, code) {
   netClose();
@@ -1900,7 +1912,8 @@ function netConnect(role, code) {
   let w, opened = false;
   try { w = new WebSocket(relayUrl()); } catch (e) { netFail(role, code); return; }
   net.ws = w;
-  w.onopen = () => { opened = true; w.send(JSON.stringify({ t: role, code })); };
+  const timer = setTimeout(() => { if (!opened && net.ws === w) { net.ws = null; try { w.close(); } catch (e) {} netFail(role, code); } }, 6000);   // не ждём минуту
+  w.onopen = () => { opened = true; clearTimeout(timer); w.send(JSON.stringify({ t: role, code })); };
   w.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } netMessage(m); };
   w.onerror = () => {};
   w.onclose = () => {
@@ -1923,7 +1936,7 @@ function netMessage(m) {
   if (m.t === 'role') {
     net.role = m.role; net.code = m.code || '';
     if (m.role === 'host') { net.peer = !!m.guest; netLobby(); }
-    else { netSend({ t: 'tank', tank: gameMode === 'hangar' ? save.tank : 'medium' }); showOverlay('По сети', '<p>Подключено. Ждём, пока ведущий начнёт игру…</p>', [{ label: 'Выйти', cls: 'gray', fn: menu }]); }
+    else { netSend({ t: 'tank', tank: gameMode === 'hangar' ? (sessionTank || save.tank) : 'medium' }); showOverlay('По сети', '<p>Подключено. Ждём, пока ведущий начнёт игру…</p>', [{ label: 'Выйти', cls: 'gray', fn: menu }]); }
   } else if (m.t === 'nohost') {
     netClose(); netJoinAsk('Комнаты с таким кодом нет. Проверь код — или пусть ведущий нажмёт «Создать игру».');
   } else if (m.t === 'full') {
@@ -2216,7 +2229,7 @@ function modeMenu() {             // как играть: одному, вдво
   $('help').textContent = 'Клавиша 1 — один игрок, 2 — вдвоём вместе, 3 — дуэль друг против друга';
 }
 function showHangar() {           // ангар: выбрать или купить танк за токены; выбранный остаётся навсегда
-  gameMode = 'hangar'; loadSave();
+  gameMode = 'hangar'; loadSave(); sessionTank = '';
   state = 'ask';
   const word = n => n === 1 ? 'попадание' : 'попадания';
   const rows = ['light', 'medium', 'heavy'].map(k => {
@@ -2613,6 +2626,12 @@ loadSave();
 buildLevel(0);     // фон для меню
 menu();
 requestAnimationFrame(frame);
+if (handoff.net === 'host' || (handoff.net === 'join' && handoff.code)) {     // пришли с другого адреса — продолжаем
+  history.replaceState(null, '', location.pathname);
+  gameMode = handoff.mode === 'hangar' ? 'hangar' : 'classic'; loadSave();
+  if (TANKS[handoff.tank]) sessionTank = handoff.tank;
+  if (handoff.net === 'host') netConnect('host'); else netConnect('join', handoff.code.replace(/\D/g, '').slice(0, 4));
+}
 </script>
 </body>
 </html>
