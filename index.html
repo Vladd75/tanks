@@ -359,6 +359,7 @@ function makeLevel(i) {              // i — номер уровня с нул�
 }
 const LEVELS = [];
 for (let i = 0, h = 0; i < LEVEL_COUNT; i++) LEVELS.push((i + 1) % BOSS_EVERY === 0 || h >= HAND_LEVELS.length ? makeLevel(i) : HAND_LEVELS[h++]);
+const BOSS_COVER = [[3, 4], [11, 4], [6, 6], [8, 6], [2, 8], [12, 8], [5, 10], [9, 10]];
 const BOSSES = [
   { name: 'Крепыш',       camo: ['#7a2f22', '#3d1712', '#b5503a'] },
   { name: 'Молот',        camo: ['#8a6a1e', '#4a3810', '#d0a84a'] },
@@ -881,6 +882,8 @@ function buildLevel(n) {
       cellMesh[r][c] = null;
     }
   }
+  if (gameMode === 'hangar' && levelDef(n).boss)                    // бетонные укрытия от залпов босса
+    for (const [c, r] of BOSS_COVER) if (grid[r][c] === EMPTY && !reserved.has(c + ',' + r)) grid[r][c] = STEEL;
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === WATER) waterCells.push([c, r]);
   origGrid = grid.map(row => row.slice()); brickTotal = countBricks();        // запоминаем, как было, — чтобы стены могли отрастать
   tigerDone = duel || !!levelDef(n).boss || !waterCells.length; tigerTimer = rand(14, 26);
@@ -908,7 +911,19 @@ function buildLevel(n) {
 }
 
 // ───────────────────────── Танки ─────────────────────────
-function makeTankMesh(palette, scale, look) { return look && TANK_LOOKS[look] ? makeStyledTank(palette, scale, look) : makeTankMeshGeneric(palette, scale); }
+function makeTankMesh(palette, scale, look) {
+  if (look === 'ring') { const g = makeTankMeshGeneric(palette, scale); addGunRing(g); g.userData.rec[3] = 'ring'; return g; }
+  return look && TANK_LOOKS[look] ? makeStyledTank(palette, scale, look) : makeTankMeshGeneric(palette, scale);
+}
+const RING_GUNS = 15;
+function addGunRing(g) {              // 15 пушек по кругу корпуса — Крепыш в «Ангаре»
+  const body = g.userData.body, geo = new THREE.CylinderGeometry(0.016, 0.02, 0.17, 6).rotateX(Math.PI / 2);
+  for (let k = 0; k < RING_GUNS; k++) {
+    const a = k * Math.PI * 2 / RING_GUNS, m = new THREE.Mesh(geo, MAT.gun);
+    m.position.set(-Math.sin(a) * 0.4, 0.3, -Math.cos(a) * 0.4); m.rotation.y = a; m.castShadow = true;
+    body.add(m);
+  }
+}
 // L — длина корпуса, W — ширина, H — высота крыши, nose — скос лба; turret — [верх, низ, высота, граней, сдвиг x, сдвиг z, вытяжка вдоль];
 // gun — [длина, толщина ствола]; wheels — [сколько катков, радиус]; tw — ширина гусеницы; brake — дульный тормоз
 const TANK_LOOKS = {
@@ -1163,8 +1178,8 @@ function spawnEnemy() {
     const [c, r] = ENEMY_SPAWNS[(start + i) % ENEMY_SPAWNS.length], x = c + 0.5, z = r + 0.5;
     const busy = players.concat(enemies).some(o => o.alive && Math.abs(o.x - x) < 0.6 + (o.half || HALF) && Math.abs(o.z - z) < 0.6 + (o.half || HALF));
     if (busy) continue;
-    const hp = K.hp + (k === 2 ? tier : Math.floor(tier / 2));
-    const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed * (1 + 0.03 * tier), hp, maxHp: hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
+    const hp = K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && k === 2 ? 1 : 0);
+    const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed * (1 + 0.03 * tier) * (gameMode === 'hangar' ? 1.1 : 1), hp, maxHp: hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
       debris: K.camo[0], aiTimer: rand(0.6, 1.6), fireTimer: rand(1, 2), stuck: 0, frozen: false, mesh: makeTankMesh(K.camo, K.scale) };
     e.mesh.position.set(x, 0, z); e.mesh.rotation.y = -Math.PI;
     dynGroup.add(e.mesh); enemies.push(e); spawned++;
@@ -1181,14 +1196,62 @@ function tintEnemy(e) {          // подбитый темнеет, замор�
 // ───────────────────────── Босс ─────────────────────────
 // Большой танк на каждом 10-м уровне: много жизней (полоска сверху), тройной залп, проламывает кирпич корпусом.
 function spawnBoss() {
-  const tier = Math.floor(level / 10), B = BOSSES[Math.min(tier, BOSSES.length - 1)], hp = 18 + tier * 14;
+  const tier = Math.floor(level / 10), B = BOSSES[Math.min(tier, BOSSES.length - 1)], hp = gameMode === 'hangar' ? 35 + tier * 20 : 18 + tier * 14;
   const K = { name: B.name, camo: B.camo, hp, score: 3000 + tier * 2000 };
   boss = { isEnemy: true, team: 1, boss: true, kind: K, alive: true, x: 7.5, z: 1.0, dir: 2, wantDir: 2, speed: 0.85 + tier * 0.06, hp, maxHp: hp, half: 0.8, shield: 0, born: 0.4, scale: 2,
-    recoil: 0, fxT: 0.3, debris: B.camo[0], aiTimer: 1.5, fireTimer: 2.5, stuck: 0, frozen: false, mesh: makeTankMesh(B.camo, 2) };
+    recoil: 0, fxT: 0.3, debris: B.camo[0], aiTimer: 1.5, fireTimer: 2.5, stuck: 0, frozen: false, sp: 4, combo: 0, mesh: makeTankMesh(B.camo, 2, gameMode === 'hangar' && tier === 0 ? 'ring' : undefined) };
   boss.mesh.position.set(boss.x, 0, boss.z); boss.mesh.rotation.y = -Math.PI;
   dynGroup.add(boss.mesh); enemies.push(boss); spawned++;
   syncTank(boss, 1);
   $('bossName').textContent = 'Босс: ' + B.name; $('bossFill').style.width = '100%'; $('bossBar').style.display = 'block';
+}
+// Крепыш — залп из всех 15 пушек по кругу раз в 7 секунд; Молот — вызывает бомбардировщик на твой ряд;
+// Гроза — веер снарядов в твою сторону; Титан — щит, под которым чинится; Чёрный барон — всё по очереди.
+// Перед атакой босс «заряжается»: вспышка и гул — есть полсекунды спрятаться.
+function bossSpecial(e, dt) {
+  const tier = Math.min(4, Math.floor(level / 10));
+  e.shield = Math.max(0, e.shield - dt);
+  if (tier === 3 && e.shield > 0 && e.hp < e.maxHp) {              // Титан под щитом чинится
+    e.hp = Math.min(e.maxHp, e.hp + dt * 1.5);
+    $('bossFill').style.width = (100 * e.hp / e.maxHp) + '%';
+  }
+  e.sp -= dt;
+  if (e.sp < 0.6 && !e.charged) {
+    e.charged = true;
+    puff(TEX.glow, 0xff5a2a, e.x, 0.6, e.z, 0, 0, 0, 0.6, 1, 2.6, 0.8, true);
+    beep(160, 520, 0.55, 'sawtooth', 0.06);
+  }
+  if (e.sp > 0) return;
+  e.charged = false;
+  const act = tier === 4 ? ['ring', 'fan', 'air'][e.combo++ % 3] : ['ring', 'air', 'fan', 'shield'][tier];
+  if (act === 'ring') { bossRing(e); e.sp = tier === 4 ? 5 : 7; }
+  else if (act === 'air') { bossAirStrike(); e.sp = tier === 4 ? 5 : 10; }
+  else if (act === 'fan') { bossFan(e, 7); e.sp = tier === 4 ? 5 : 4.5; }
+  else { e.shield = 3; e.sp = 10; banner('Титан закрылся щитом!', 1200); }
+}
+function bossRing(e) {
+  const base = e.mesh.rotation.y;
+  for (let k = 0; k < RING_GUNS; k++) {
+    const a = base + k * Math.PI * 2 / RING_GUNS, dx = -Math.sin(a), dz = -Math.cos(a);
+    addShell(e, e.x + dx * 1.0, e.z + dz * 1.0, dx * 4.5, dz * 4.5, true, 1, false);
+  }
+  fireball(e.x, 0.5, e.z, 2); boom(0.5, 0.6, 1200);
+}
+function bossFan(e, n) {
+  let tgt = null, best = 1e9;
+  for (const p of players) if (p.alive) { const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < best) { best = d; tgt = p; } }
+  if (!tgt) return;
+  const base = Math.atan2(tgt.z - e.z, tgt.x - e.x);
+  for (let k = 0; k < n; k++) {
+    const a = base + (k - (n - 1) / 2) * 0.16, dx = Math.cos(a), dz = Math.sin(a);
+    addShell(e, e.x + dx * 1.0, e.z + dz * 1.0, dx * 5.5, dz * 5.5, true, 1, false);
+  }
+  muzzleFx(e.x + Math.cos(base) * 1.1, e.z + Math.sin(base) * 1.1, Math.cos(base), Math.sin(base), 1, 1);
+}
+function bossAirStrike() {
+  launchPlane();
+  const pl = planes[planes.length - 1], alive = players.filter(p => p.alive);
+  if (pl && alive.length) { pl.z = Math.floor(alive[randInt(alive.length)].z) + 0.5; pl.mesh.position.z = pl.z; }
 }
 function ram(e) {                // упёрся в кирпич — ломает его
   const x = e.x + DX[e.wantDir] * 0.25, z = e.z + DZ[e.wantDir] * 0.25, h = e.half;
@@ -1274,7 +1337,7 @@ function makeHeliMesh(pal) {
 }
 // вертолёт летит над стенами и водой, зависает над игроком и бросает бомбы; сбить можно обычным выстрелом
 function spawnHeli(K) {
-  const h = { isEnemy: true, team: 1, heli: true, kind: K, alive: true, x: rand(1, COLS - 1), z: -3, y: 1.15, hp: K.hp + Math.floor(level / 20), maxHp: K.hp + Math.floor(level / 20), yaw: Math.PI, tx: 0, tz: 0,
+  const h = { isEnemy: true, team: 1, heli: true, kind: K, alive: true, x: rand(1, COLS - 1), z: -3, y: 1.15, hp: K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0), maxHp: K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0), yaw: Math.PI, tx: 0, tz: 0,
     aiTimer: 0, bombTimer: rand(2.5, 4), frozen: false, fxT: 0, debris: K.camo[0], mesh: makeHeliMesh(K.camo) };
   heliTarget(h);
   dynGroup.add(h.mesh); helis.push(h); spawned++;
@@ -2406,11 +2469,12 @@ function update(dt) {
     for (const e of enemies.slice()) {
       if (e.frozen !== frozen) { e.frozen = frozen; tintEnemy(e); }
       if (frozen) continue;
+      if (e.boss && gameMode === 'hangar') bossSpecial(e, dt);
       e.aiTimer -= dt; if (e.aiTimer <= 0) pickDir(e);
       if (moveTank(e, e.wantDir, dt)) e.stuck = 0;
       else { if (e.boss) ram(e); e.stuck += dt; if (e.stuck > 0.45) { pickDir(e); e.stuck = 0; } }
       e.fireTimer -= dt;
-      if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : rand(0.9, 2.4) - Math.min(level, 5) * 0.1; }
+      if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : (rand(0.9, 2.4) - Math.min(level, 5) * 0.1) * (gameMode === 'hangar' ? 0.8 : 1); }
     }
   }
   for (const t of players) if (t.alive) syncTank(t, dt);
