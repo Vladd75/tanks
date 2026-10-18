@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Танчики 3D</title>
+<title>Танчики 3D. Восстание машин</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1c2a1c;
@@ -70,7 +70,7 @@
     .buffs div { font-size: 14px; padding: 2px 7px 2px 2px; min-height: 24px; }
     .buffs img { width: 24px; height: 24px; }
   }
-  .card h1 { margin: 0 0 10px; font-size: 42px; color: #3a5a26; }
+  .card h1 { margin: 0 0 10px; font-size: 42px; color: #3a5a26; white-space: pre-line; line-height: 1.15; }
   .card p { margin: 8px 0; font-size: 18px; color: #333; line-height: 1.45; }
   .card button { margin: 14px 8px 0; padding: 14px 26px; font-size: 22px; font-weight: 700;
     border: none; border-radius: 14px; background: #4c8a34; color: #fff; cursor: pointer;
@@ -172,7 +172,8 @@
   <div id="abilBtn0" class="abilBtn"></div>
   <div id="abilBtn1" class="abilBtn"></div>
 </div>
-<div id="overlay"><div class="card"><h1 id="ovTitle">Танчики 3D</h1><div id="ovText"><p>Загрузка…</p></div><div id="ovButtons"></div></div></div>
+<div id="overlay"><div class="card"><h1 id="ovTitle">Танчики 3D.
+Восстание машин</h1><div id="ovText"><p>Загрузка…</p></div><div id="ovButtons"></div></div></div>
 
 <script>
 /**
@@ -357,7 +358,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const GAME_VERSION = 'Версия 1.0 «Восстание машин» · 19.10.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
+const GAME_VERSION = 'Версия 1.0 · 19.10.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
 const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
@@ -2829,7 +2830,7 @@ function menu() {
   net.lobby = false; netClose();
   state = 'menu'; duel = false;
   document.body.classList.remove('two');
-  showOverlay(author ? 'Танчики 3D — автор' : 'Танчики 3D', (author ? '<p class="small"><b>Режим автора:</b> своё сохранение, токенов и монет без счёта, все танки, уровень на выбор. Сохранения ребят не трогаются.</p>' : '') +
+  showOverlay(author ? 'Танчики 3D.\nВосстание машин — автор' : 'Танчики 3D.\nВосстание машин', (author ? '<p class="small"><b>Режим автора:</b> своё сохранение, токенов и монет без счёта, все танки, уровень на выбор. Сохранения ребят не трогаются.</p>' : '') +
     '<p>Подбей все вражеские танки. ' + LEVELS.length + ' уровней, каждый десятый — босс. После ' + ROBOT_FROM + '-го — война с роботами.</p>' +
     '<p class="small"><b>Обычная игра</b> — для новичков. <b>Ангар</b> — выбираешь танк, враги сильнее, обойма с перезарядкой.</p>' +
     '<p class="small" style="text-align:center; color:#8a7d60; margin:2px 0 0">' + GAME_VERSION + '</p>',
