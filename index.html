@@ -2623,7 +2623,7 @@ function askLevel(note) {          // автор выбирает уровень
   const go = () => { const n = parseInt($('lvNum').value, 10); if (n >= 1 && n <= LEVELS.length) beginGame(n - 1); else askLevel('Номер от 1 до ' + LEVELS.length + '.'); };
   showOverlay('Какой уровень?', (note ? '<p><b>' + note + '</b></p>' : '') + '<p>Боссы — 10, 20, 30, 40, 50. Землетрясения — с ' + (QUAKE_FROM + 1) + '-го.</p>' +
     '<input id="lvNum" class="ideaField" inputmode="numeric" maxlength="2" autocomplete="off" value="' + (save.level + 1) + '" style="text-align:center; font-size:30px; max-width:160px">',
-    [{ label: 'Играть', fn: go }, { label: 'Назад', cls: 'gray', fn: modeMenu }]);
+    [{ label: 'Играть', fn: go }, { label: 'Магазин', cls: 'blue', fn: () => openShop(() => askLevel('')) }, { label: 'Назад', cls: 'gray', fn: modeMenu }]);
   $('lvNum').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
   setTimeout(() => { if ($('lvNum')) { $('lvNum').focus(); $('lvNum').select(); } }, 60);
 }
