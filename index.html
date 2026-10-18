@@ -1283,6 +1283,18 @@ function makeDroneMesh(pal) {            // дрон: четыре винта н
   g.userData = { mat, body, rotor, tail, props, rec: ['heli', pal, 'drone'] };
   return g;
 }
+// Роботы подстраиваются под развитие танка: сколько куплено в магазине (в «Ангаре» — ещё и звёзды своего танка).
+// Ступень 0 — как было; 1 — быстрее и чаще стреляют; 2 — ещё и крепче, на поле на одного больше; 3 — сильнее всего.
+let roboBoost = { k: 0, hp: 0, speed: 1, fire: 1, alive: 0, boss: 1 };
+const ROBO_WORDS = ['обычные', 'покрепче', 'сильные', 'очень сильные'];
+function calcRoboBoost() {
+  let have = 0, all = 0;
+  for (const u of SHOP) { have += save.up[u.key] || 0; all += u.costs.length; }
+  let dev = have / all;
+  if (gameMode === 'hangar') dev = 0.7 * dev + 0.3 * starsOf(players[0]) / 3;
+  const k = Math.max(0, Math.min(3, Math.round(dev * 3)));
+  roboBoost = { k, hp: k === 3 ? 2 : k === 2 ? 1 : 0, speed: 1 + 0.06 * k, fire: 1 - 0.1 * k, alive: k >= 2 ? 1 : 0, boss: 1 + 0.2 * k };
+}
 function nearestPlayer(e) {
   let best = null, bd = 1e9;
   for (const p of players) if (p.alive) { const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < bd) { bd = d; best = p; } }
@@ -1519,8 +1531,8 @@ function spawnEnemy() {
     const [c, r] = ENEMY_SPAWNS[(start + i) % ENEMY_SPAWNS.length], x = c + 0.5, z = r + 0.5;
     const busy = players.concat(enemies).some(o => o.alive && Math.abs(o.x - x) < 0.6 + (o.half || HALF) && Math.abs(o.z - z) < 0.6 + (o.half || HALF));
     if (busy) continue;
-    const hp = K.robo ? K.hp + (level >= 60 ? 1 : 0) + (gameMode === 'hangar' ? 1 : 0) : K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && (k === 0 || k === 2) ? 1 : 0);
-    const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed * (1 + 0.03 * tier) * (gameMode === 'hangar' ? 1.1 : 1), hp, maxHp: hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
+    const hp = K.robo ? K.hp + (level >= 60 ? 1 : 0) + (gameMode === 'hangar' ? 1 : 0) + roboBoost.hp : K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && (k === 0 || k === 2) ? 1 : 0);
+    const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed * (1 + 0.03 * tier) * (gameMode === 'hangar' ? 1.1 : 1) * (K.robo ? roboBoost.speed : 1), hp, maxHp: hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
       debris: K.camo[0], aiTimer: rand(0.6, 1.6), fireTimer: rand(1, 2), stuck: 0, frozen: false, mesh: makeTankMesh(K.camo, K.scale, K.look) };
     e.mesh.position.set(x, 0, z); e.mesh.rotation.y = -Math.PI;
     dynGroup.add(e.mesh); enemies.push(e); spawned++;
@@ -1537,7 +1549,7 @@ function tintEnemy(e) {          // подбитый темнеет, замор�
 // ───────────────────────── Босс ─────────────────────────
 // Большой танк на каждом 10-м уровне: много жизней (полоска сверху), тройной залп, проламывает кирпич корпусом.
 function spawnBoss() {
-  const tier = Math.floor(level / 10), B = BOSSES[Math.min(tier, BOSSES.length - 1)], hp = gameMode === 'hangar' ? 35 + tier * 20 : 18 + tier * 14;
+  const tier = Math.floor(level / 10), B = BOSSES[Math.min(tier, BOSSES.length - 1)], hp = Math.round((gameMode === 'hangar' ? 35 + tier * 20 : 18 + tier * 14) * (B.robo ? roboBoost.boss : 1));
   const K = { name: B.name, camo: B.camo, hp, score: 3000 + tier * 2000, robo: !!B.robo };
   boss = { isEnemy: true, team: 1, boss: true, kind: K, alive: true, x: 7.5, z: 1.0, dir: 2, wantDir: 2, speed: 0.85 + tier * 0.06, hp, maxHp: hp, half: 0.8, shield: 0, born: 0.4, scale: 2,
     recoil: 0, fxT: 0.3, debris: B.camo[0], aiTimer: 1.5, fireTimer: 2.5, stuck: 0, frozen: false, sp: 4, combo: 0, mesh: makeTankMesh(B.camo, 2, gameMode === 'hangar' && tier === 0 ? 'ring' : B.look) };
@@ -1680,7 +1692,7 @@ function makeHeliMesh(pal, look) {
 }
 // вертолёт летит над стенами и водой, зависает над игроком и бросает бомбы; сбить можно обычным выстрелом
 function spawnHeli(K) {
-  const hhp = K.robo ? K.hp + (level >= 60 ? 1 : 0) : K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0);
+  const hhp = K.robo ? K.hp + (level >= 60 ? 1 : 0) + roboBoost.hp : K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0);
   const h = { isEnemy: true, team: 1, heli: true, kind: K, alive: true, x: rand(1, COLS - 1), z: -3, y: 1.15, hp: hhp, maxHp: hhp, yaw: Math.PI, tx: 0, tz: 0,
     aiTimer: 0, bombTimer: rand(2.5, 4), frozen: false, fxT: 0, debris: K.camo[0], mesh: makeHeliMesh(K.camo, K.look) };
   heliTarget(h);
@@ -2984,10 +2996,12 @@ function startLevel() {
   hideOverlay(); resetInput();
   buildLevel(level);
   levelCoins = 0;
+  calcRoboBoost();
   if (curL().boss) spawnBoss();
   for (const p of players) { p.alive = false; p.strikeUsed = false; p.abilCd = 0; p.allyT = 0; if (p.lives <= 0) p.lives = 1; p.rockets = Math.max(p.rockets, ROCKET_AMMO[up('rocket')]); spawnPlayer(p); }   // выбывший напарник возвращается с одной жизнью
   state = 'play'; last = performance.now();
   banner(boss ? 'БОСС: ' + boss.kind.name : level === ROBOT_FROM ? 'Восстание машин!' : 'Уровень ' + (level + 1), boss ? 2400 : 1500, true);
+  if (curL().robo && !duel) { const lv = level; setTimeout(() => { if (state === 'play' && level === lv) banner('Роботы подстроились под тебя: ' + ROBO_WORDS[roboBoost.k], 2200); }, boss ? 2500 : 1600); }
   $('help').innerHTML = twoPlayers
     ? 'Зелёный: W A S D + Пробел, ракета E &nbsp;•&nbsp; Синий: стрелки + Enter, ракета правый Shift &nbsp;•&nbsp; P — пауза'
     : 'Ехать: стрелки или W A S D (две сразу — наискосок) &nbsp;•&nbsp; Стрелять: Пробел &nbsp;•&nbsp; Ракета: E &nbsp;•&nbsp; P — пауза, M — звук';
@@ -3141,7 +3155,7 @@ function update(dt) {
     }
     const L = curL();
     spawnTimer -= dt;
-    if (spawnTimer <= 0 && spawned < L.total && enemies.length + helis.length < L.maxAlive) spawnTimer = spawnEnemy() ? 1.8 : 0.4;
+    if (spawnTimer <= 0 && spawned < L.total && enemies.length + helis.length < L.maxAlive + (L.robo ? roboBoost.alive : 0)) spawnTimer = spawnEnemy() ? 1.8 : 0.4;
     if (waterTrap) for (const t of players.concat(enemies)) {       // омут: кто заехал в воду — тонет (плавающему игроку не страшно)
       if (t.alive && !t.boss && cellAt(t.x, t.z) === WATER && !(amphibious && !t.isEnemy)) killTank(t, true);
     }
@@ -3186,7 +3200,7 @@ function update(dt) {
       if (movedOk) e.stuck = 0;
       else { if (e.boss) ram(e); e.stuck += dt; if (e.stuck > 0.45) { pickDir(e); e.stuck = 0; } }
       e.fireTimer -= dt;
-      if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : (rand(0.9, 2.4) - Math.min(level, 5) * 0.1) * (gameMode === 'hangar' ? 0.8 : 1); }
+      if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : (rand(0.9, 2.4) - Math.min(level, 5) * 0.1) * (gameMode === 'hangar' ? 0.8 : 1) * (e.kind.robo ? roboBoost.fire : 1); }
     }
   }
   if (state === 'play') { updateAllies(dt); updateStrikes(dt); updateTemps(dt); }
