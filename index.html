@@ -342,6 +342,11 @@ const KINDS = [
   { name: 'быстрый', camo: ['#c39c3c', '#8a6a24', '#dcc070'], speed: 2.5, hp: 1, score: 200, scale: 0.92 },
   { name: 'тяжёлый', camo: ['#3f3b48', '#24212b', '#6b5f82'], speed: 1.1, hp: 3, score: 300, scale: 1.12 },
   { name: 'вертолёт', camo: ['#4a5246', '#2d332b', '#6b735f'], speed: 1.5, hp: 2, score: 400, scale: 1, heli: true },
+  // роботы (уровни 51–70)
+  { name: 'шагоход', camo: ['#5d6873', '#2f353c', '#ff7a1a'], speed: 1.05, hp: 3, score: 300, scale: 1, look: 'walker', robo: true },
+  { name: 'робот-машинка', camo: ['#b8261c', '#5e130e', '#f2c418'], speed: 2.9, hp: 2, score: 300, scale: 0.95, look: 'car', robo: true, car: true },
+  { name: 'паук-минёр', camo: ['#34343c', '#16161a', '#9b3bff'], speed: 2.2, hp: 1, score: 200, scale: 0.85, look: 'spider', robo: true, miner: true },
+  { name: 'дрон', camo: ['#3c4b5a', '#1f272e', '#4fd2ff'], speed: 1.9, hp: 2, score: 400, scale: 1, heli: true, look: 'drone', robo: true },
 ];
 const PLAYER_CAMO = [['#4f6e30', '#2e4420', '#7c8246'], ['#2f62a0', '#1c3c6c', '#6d94c6']];
 const DX = [0, 1, 0, -1], DZ = [-1, 0, 1, 0];   // 0 вверх, 1 вправо, 2 вниз, 3 влево
@@ -352,7 +357,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const LEVEL_COUNT = 50, BOSS_EVERY = 10;
+const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
   const seen = new Set([PLAYER_SPAWNS[0].join()]), q = [PLAYER_SPAWNS[0]];
@@ -387,6 +392,11 @@ function generateMap(n, open) {      // open — площадка для бос�
 }
 function makeLevel(i) {              // i — номер уровня с нуля
   const tier = Math.floor(i / 10);
+  if (i >= ROBOT_FROM) {               // роботы: шагоход, машинка, паук, дрон (KINDS 4–7); самолётов и десанта нет
+    const j = i - ROBOT_FROM;
+    if ((i + 1) % BOSS_EVERY === 0) return { robo: true, boss: true, total: 10, maxAlive: 4, mix: [0, 0, 0, 0, 2, 1, 2, 1], plane: 0, troops: 0, map: generateMap(i, true) };
+    return { robo: true, total: Math.min(30, 18 + Math.floor(j / 2)), maxAlive: j < 10 ? 6 : 7, mix: [0, 0, 0, 0, 3, 2 + Math.floor(j / 6), 2, 1 + Math.floor(j / 8)], plane: 0, troops: 0, map: generateMap(i, false) };
+  }
   if ((i + 1) % BOSS_EVERY === 0) return { boss: true, total: 7 + tier * 2, maxAlive: 3 + Math.min(tier, 2), mix: [3, 2, 1, tier > 0 ? 1 : 0], plane: tier >= 2 ? 16 : 0, troops: tier >= 1 ? 26 : 0, map: generateMap(i, true) };
   return { total: Math.min(30, 12 + Math.floor(i / 2)), maxAlive: Math.min(7, 4 + Math.floor(i / 12)), mix: [3, 3, 2 + tier, 2 + tier], plane: Math.max(9, 18 - Math.floor(i / 4)), troops: i >= 11 ? Math.max(16, 34 - Math.floor(i / 3)) : 0, map: generateMap(i, false) };
 }
@@ -399,6 +409,8 @@ const BOSSES = [
   { name: 'Гроза',        camo: ['#2f4a6a', '#182838', '#6f95c0'] },
   { name: 'Титан',        camo: ['#3a3a3a', '#1c1c1c', '#7a7a7a'] },
   { name: 'Чёрный барон', camo: ['#1b1b1f', '#0c0c0e', '#8a1f1f'] },
+  { name: 'Паучиха-матка', camo: ['#2a2a30', '#111114', '#c03cff'], look: 'spider', robo: true },
+  { name: 'Мега-робот',    camo: ['#b0201a', '#5a0f0c', '#f2c418'], look: 'car', robo: true },
 ];
 const TIGER_CAMO = ['#e6eaea', '#c3ccd0', '#9aa5aa'];
 
@@ -637,6 +649,28 @@ const TEX = {};
     o[0] = r; o[1] = g; o[2] = b; o[3] = 0.5 * n2 + 0.5 * gr;
   });
   TEX.dirt = texFrom(dirt.cv, true); TEX.dirtBump = texFrom(dirt.bc, false);
+  // пол у роботов: стальные плиты с рифлением и заклёпками (одна плита — одна клетка)
+  const metal = pixelTex(MOBILE ? 256 : 512, (u, v, o) => {
+    const n = fbm(u, v, 8, 3), fu = (u * 4) % 1, fv = (v * 4) % 1;
+    const rd = Math.min(Math.hypot(fu - 0.09, fv - 0.09), Math.hypot(fu - 0.91, fv - 0.09), Math.hypot(fu - 0.09, fv - 0.91), Math.hypot(fu - 0.91, fv - 0.91));
+    const tread = Math.floor((fu + fv) * 16) % 2 ? 1 : 0;
+    let k = (0.8 + 0.28 * n) * (1 + 0.05 * tread), h = 0.45 + 0.1 * tread;
+    if (fu < 0.025 || fv < 0.025) { k *= 0.45; h = 0; }
+    else if (rd < 0.03) { k *= 1.35; h = 1; }
+    o[0] = 96 * k; o[1] = 104 * k; o[2] = 114 * k; o[3] = h;
+  });
+  TEX.metal = texFrom(metal.cv, true, COLS / 4, ROWS / 4); TEX.metalBump = texFrom(metal.bc, false, COLS / 4, ROWS / 4);
+  // стена у роботов: стальная панель с заклёпками и жёлто-чёрной полосой
+  const panel = pixelTex(128, (u, v, o) => {
+    const n = fbm(u, v, 6, 3), e = Math.min(u, v, 1 - u, 1 - v);
+    let r = 84, g = 98, b = 114, k = 0.85 + 0.25 * n, h = 0.6;
+    if (e < 0.05) { k *= 0.55; h = 0.2; } else if (e < 0.09) { k *= 1.25; h = 1; }
+    else if (v > 0.78) { if (Math.floor((u + v) * 10) % 2) { r = 230; g = 186; b = 40; } else { r = 38; g = 38; b = 40; } }
+    const rd = Math.min(Math.hypot(u - 0.16, v - 0.16), Math.hypot(u - 0.84, v - 0.16), Math.hypot(u - 0.16, v - 0.84), Math.hypot(u - 0.84, v - 0.84));
+    if (rd < 0.035) { k *= 1.4; h = 1; }
+    o[0] = r * k; o[1] = g * k; o[2] = b * k; o[3] = h;
+  });
+  TEX.panel = texFrom(panel.cv, true); TEX.panelBump = texFrom(panel.bc, false);
   // трава вокруг поля
   const grass = pixelTex(MOBILE ? 256 : 512, (u, v, o) => {
     const n = fbm(u, v, 8, 4), gr = vnoise(u * 128, v * 128, 128), k = 0.72 + 0.56 * gr;
@@ -720,6 +754,12 @@ const STD = o => new THREE.MeshStandardMaterial(o);
 const MAT = {
   brick: STD({ map: TEX.brick, bumpMap: TEX.brickBump, bumpScale: 0.035, roughness: 0.95 }),
   rubble: STD({ color: C(0x8a4630), roughness: 1 }),
+  panel: STD({ map: TEX.panel, bumpMap: TEX.panelBump, bumpScale: 0.03, roughness: 0.5, metalness: 0.6 }),
+  rubbleR: STD({ color: C(0x56616c), roughness: 0.6, metalness: 0.5 }),
+  robEye: new THREE.MeshBasicMaterial({ color: C(0xff3326) }),
+  robEyeB: new THREE.MeshBasicMaterial({ color: C(0x4fe0ff) }),
+  robDark: STD({ color: C(0x22252a), roughness: 0.5, metalness: 0.6 }),
+  portal: new THREE.MeshBasicMaterial({ color: C(0x5ae0ff), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
   steel: STD({ map: TEX.conc, bumpMap: TEX.concBump, bumpScale: 0.03, roughness: 0.85, metalness: 0.05 }),
   water: STD({ color: C(0x1d5a66), roughness: 0.1, metalness: 0.6, normalMap: TEX.waterN, normalScale: new THREE.Vector2(0.45, 0.45), transparent: true, opacity: 0.94 }),
   mud: STD({ color: C(0x4a3a26), roughness: 1 }),
@@ -778,6 +818,7 @@ const GEO = {
   troopBody: new THREE.CylinderGeometry(0.045, 0.055, 0.17, 8),
   chute: new THREE.SphereGeometry(0.24, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
   ball: new THREE.SphereGeometry(1, 16, 12),
+  portal: new THREE.RingGeometry(0.33, 0.47, 32),
   boom: new THREE.CylinderGeometry(0.03, 0.05, 0.5, 8).rotateX(Math.PI / 2),
   blade: new THREE.BoxGeometry(1.1, 0.012, 0.07),
   disc: new THREE.CircleGeometry(0.56, 24).rotateX(-Math.PI / 2),
@@ -853,8 +894,9 @@ const world = new THREE.Group();
 world.position.set(-COLS / 2, 0, -ROWS / 2);
 scene.add(world);
 
+let arenaGround = null, roboTheme = false;
 (function buildArena() {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(COLS, ROWS), STD({ map: TEX.dirt, bumpMap: TEX.dirtBump, bumpScale: 0.03, roughness: 1 }));
+  const ground = arenaGround = new THREE.Mesh(new THREE.PlaneGeometry(COLS, ROWS), STD({ map: TEX.dirt, bumpMap: TEX.dirtBump, bumpScale: 0.03, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.position.set(COLS / 2, 0, ROWS / 2); ground.receiveShadow = true;
   world.add(ground);
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(110, 110), STD({ map: TEX.grass, bumpMap: TEX.grassBump, bumpScale: 0.05, roughness: 1 }));
@@ -990,6 +1032,9 @@ function buildLevel(n) {
   rockets = []; troopers = []; mines = []; wrecks = []; allies = []; strikes = []; temps = []; quakeT = rand(20, 35); troopTimer = (levelDef(n).troops || 0) * 0.5;
   sinking = []; rising = []; regrow = false; growT = 4; setWaterTrap(false);
   $('bossBar').style.display = 'none'; document.body.classList.remove('bossOn');
+  roboTheme = !!levelDef(n).robo;                                    // у роботов — стальной пол, стены-панели и порталы
+  if (arenaGround) { const gm = arenaGround.material; gm.map = roboTheme ? TEX.metal : TEX.dirt; gm.bumpMap = roboTheme ? TEX.metalBump : TEX.dirtBump; gm.needsUpdate = true; }
+  if (roboTheme) for (const [c, r] of ENEMY_SPAWNS) { const ring = new THREE.Mesh(GEO.portal, MAT.portal); ring.rotation.x = -Math.PI / 2; ring.position.set(c + 0.5, 0.03, r + 0.5); levelGroup.add(ring); }
   const map = levelDef(n).map;
   for (let r = 0; r < ROWS; r++) {
     grid[r] = []; cellMesh[r] = [];
@@ -1004,12 +1049,12 @@ function buildLevel(n) {
     for (const [c, r] of BOSS_COVER) if (grid[r][c] === EMPTY && !reserved.has(c + ',' + r)) grid[r][c] = STEEL;
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (grid[r][c] === WATER) waterCells.push([c, r]);
   origGrid = grid.map(row => row.slice()); brickTotal = countBricks();        // запоминаем, как было, — чтобы стены могли отрастать
-  tigerDone = duel || !!levelDef(n).boss || !waterCells.length; tigerTimer = rand(14, 26);
+  tigerDone = duel || !!levelDef(n).boss || !!levelDef(n).robo || !waterCells.length; tigerTimer = rand(14, 26);
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
     const type = grid[r][c];
     if (type === EMPTY) continue;
     let m;
-    if (type === BRICK) { m = new THREE.Mesh(GEO.brick, MAT.brick); m.position.set(c + 0.5, 0.35, r + 0.5); m.castShadow = true; }
+    if (type === BRICK) { m = new THREE.Mesh(GEO.brick, roboTheme ? MAT.panel : MAT.brick); m.position.set(c + 0.5, 0.35, r + 0.5); m.castShadow = true; }
     else if (type === STEEL) { m = new THREE.Mesh(GEO.steel, MAT.steel); m.position.set(c + 0.5, 0.425, r + 0.5); m.castShadow = true; }
     else {
       const geo = GEO.water.clone(), uv = geo.attributes.uv;      // рябь идёт сплошной по соседним клеткам
@@ -1030,6 +1075,7 @@ function buildLevel(n) {
 
 // ───────────────────────── Танки ─────────────────────────
 function makeTankMesh(palette, scale, look) {
+  if (look === 'walker' || look === 'car' || look === 'spider') return makeRobotMesh(palette, scale, look);
   if (look === 'ring') { const g = makeTankMeshGeneric(palette, scale); addGunRing(g); g.userData.rec[3] = 'ring'; return g; }
   return look && TANK_LOOKS[look] ? makeStyledTank(palette, scale, look) : makeTankMeshGeneric(palette, scale);
 }
@@ -1131,6 +1177,178 @@ function setHpBar(mesh, hp, maxHp, fill) {     // fill — 0…1: как дал�
   for (let i = 0; i < maxHp; i++) { g.fillStyle = i < hp ? '#4ee04e' : '#7a1f1f'; g.fillRect(gap + i * (pw + gap), 4, pw, h - 8); }
   if (fill > 0) { g.fillStyle = '#9ff59f'; g.fillRect(gap + hp * (pw + gap), 4, pw * fill, h - 8); }   // светло-зелёным растёт чинящееся деление
   b.tex.needsUpdate = true;
+}
+// ───────────────────────── Роботы (уровни 51–70) ─────────────────────────
+const robotTexCache = {};
+function robotTex(pal) {                 // окраска робота: панели со швами и заклёпками
+  const key = pal.join();
+  if (robotTexCache[key]) return robotTexCache[key];
+  const cv = mkCanvas(64), g = cv.getContext('2d');
+  g.fillStyle = pal[0]; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = pal[1]; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 61, 61); g.beginPath(); g.moveTo(0, 32); g.lineTo(64, 32); g.stroke();
+  g.fillStyle = pal[2]; for (const [x, y] of [[7, 7], [57, 7], [7, 57], [57, 57], [7, 25], [57, 25]]) { g.beginPath(); g.arc(x, y, 2.2, 0, 7); g.fill(); }
+  grain(cv, 0.18, 8);
+  return robotTexCache[key] = texFrom(cv, true);
+}
+const RGEO = {
+  leg: new THREE.BoxGeometry(0.11, 0.4, 0.13), foot: new THREE.BoxGeometry(0.15, 0.06, 0.22),
+  torso: new THREE.BoxGeometry(0.46, 0.3, 0.34), head: new THREE.BoxGeometry(0.22, 0.16, 0.2), visor: new THREE.BoxGeometry(0.17, 0.045, 0.03),
+  shoulder: new THREE.BoxGeometry(0.14, 0.1, 0.18), arm: new THREE.BoxGeometry(0.1, 0.3, 0.12),
+  chassis: new THREE.BoxGeometry(0.5, 0.16, 0.8), cabin: new THREE.BoxGeometry(0.4, 0.14, 0.36), cstripe: new THREE.BoxGeometry(0.12, 0.012, 0.8),
+  cwheel: new THREE.CylinderGeometry(0.1, 0.1, 0.08, 14).rotateZ(Math.PI / 2),
+  sleg: new THREE.BoxGeometry(0.34, 0.03, 0.03), darm: new THREE.BoxGeometry(0.36, 0.03, 0.05),
+};
+function makeRobotMesh(palette, scale, look) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  g.add(body);
+  const mat = STD({ map: robotTex(palette), roughness: 0.45, metalness: 0.65 });
+  const acc = STD({ color: C(palette[2]), roughness: 0.4, metalness: 0.4, emissive: C(palette[2]), emissiveIntensity: 0.25 });
+  const add = (geo, m, x, y, z, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; (parent || body).add(o); return o; };
+  const gun = new THREE.Group(), single = new THREE.Group(), twin = new THREE.Group(), skirts = new THREE.Group(), plates = new THREE.Group(), launcher = new THREE.Group();
+  body.add(gun, skirts, plates, launcher); gun.add(single, twin);
+  twin.visible = skirts.visible = plates.visible = launcher.visible = false;
+  const ud = { mat, gun, body, single, twin, skirts, plates, launcher, rec: ['tank', palette, scale || 1, look] };
+  if (look === 'walker') {                // шагоход: две ноги, пушка на правой руке
+    ud.legs = [];
+    for (const sx of [-0.14, 0.14]) { const hip = new THREE.Group(); hip.position.set(sx, 0.42, 0); body.add(hip); add(RGEO.leg, mat, 0, -0.2, 0, hip); add(RGEO.foot, MAT.robDark, 0, -0.39, -0.03, hip); ud.legs.push(hip); }
+    add(RGEO.torso, mat, 0, 0.6, 0.02); add(RGEO.head, mat, 0, 0.83, 0.02); add(RGEO.visor, MAT.robEye, 0, 0.84, -0.085);
+    add(RGEO.shoulder, acc, -0.29, 0.7, 0.02); add(RGEO.shoulder, acc, 0.29, 0.7, 0.02); add(RGEO.arm, mat, -0.29, 0.52, 0.02);
+    gun.position.set(0.29, 0.56, -0.06); ud.gunZ = -0.06;
+    add(GEO.mantlet, mat, 0, 0, 0.03, gun); add(GEO.barrel, MAT.gun, 0, 0, -0.16, single); add(GEO.muzzle, MAT.gun, 0, 0, -0.32, single);
+    ud.anim = (m, moved, dt) => {
+      ud.ph = (ud.ph || 0) + (moved ? dt * 9 : 0);
+      const sw = moved ? Math.sin(ud.ph) * 0.55 : 0;
+      ud.legs[0].rotation.x = sw; ud.legs[1].rotation.x = -sw; body.position.y = moved ? Math.abs(Math.cos(ud.ph)) * 0.03 : 0;
+    };
+  } else if (look === 'car') {            // робот-машинка: едет машиной, встаёт роботом и стреляет
+    const car = new THREE.Group(), bot = new THREE.Group(); body.add(car, bot);
+    add(RGEO.chassis, mat, 0, 0.2, 0, car); add(RGEO.cabin, MAT.glass, 0, 0.34, 0.06, car); add(RGEO.cstripe, acc, 0, 0.286, 0, car);
+    for (const sx of [-0.27, 0.27]) for (const sz of [-0.26, 0.26]) add(RGEO.cwheel, MAT.track, sx, 0.1, sz, car);
+    add(GEO.lamp, MAT.lamp, -0.15, 0.22, -0.405, car); add(GEO.lamp, MAT.lamp, 0.15, 0.22, -0.405, car);
+    for (const sx of [-0.13, 0.13]) { add(RGEO.leg, mat, sx, 0.22, 0, bot); add(RGEO.foot, MAT.robDark, sx, 0.03, -0.03, bot); }
+    add(RGEO.torso, mat, 0, 0.6, 0, bot); add(RGEO.cstripe, acc, 0, 0.6, -0.175, bot).scale.set(1, 20, 0.05);
+    add(RGEO.head, mat, 0, 0.84, 0, bot); add(RGEO.visor, MAT.robEyeB, 0, 0.85, -0.105, bot);
+    add(RGEO.cwheel, MAT.track, -0.3, 0.72, 0, bot); add(RGEO.cwheel, MAT.track, 0.3, 0.72, 0, bot);    // колёса на плечах
+    gun.position.set(0, 0.42, -0.12); ud.gunZ = -0.12;
+    add(GEO.mantlet, mat, 0, 0, 0.03, gun); add(GEO.barrel, MAT.gun, 0, 0, -0.16, single); add(GEO.muzzle, MAT.gun, 0, 0, -0.32, single);
+    bot.visible = false; bot.scale.setScalar(0.02);
+    ud.anim = (m, moved, dt) => {
+      ud.altK = Math.max(0, Math.min(1, (ud.altK || 0) + (ud.alt ? 1 : -1) * dt * 5));
+      const k = ud.altK;
+      car.scale.set(1, Math.max(0.02, 1 - k * 0.9), 1); car.visible = k < 0.98;
+      bot.scale.setScalar(Math.max(0.02, k)); bot.visible = k > 0.02;
+      gun.position.y = 0.42 + 0.22 * k;
+    };
+  } else {                                // паук-минёр: восемь лап, оставляет мины
+    add(GEO.ball, mat, 0, 0.26, 0.06).scale.set(0.26, 0.14, 0.3);
+    add(GEO.ball, acc, 0, 0.37, 0.1).scale.set(0.12, 0.05, 0.18);
+    add(GEO.ball, mat, 0, 0.24, -0.25).scale.set(0.13, 0.1, 0.12);
+    for (const sx of [-0.05, 0.05]) add(GEO.lamp, MAT.robEye, sx, 0.28, -0.35).scale.setScalar(1.7);
+    ud.legs = [];
+    for (const side of [-1, 1]) for (let i = 0; i < 4; i++) {
+      const piv = new THREE.Group(); piv.position.set(side * 0.14, 0.27, -0.14 + i * 0.1); piv.rotation.y = side * (i - 1.5) * 0.35; body.add(piv);
+      const leg = add(RGEO.sleg, MAT.robDark, side * 0.16, -0.08, 0, piv); leg.rotation.z = side * 0.55;
+      ud.legs.push(piv);
+    }
+    gun.position.set(0, 0.2, -0.3); ud.gunZ = -0.3;
+    add(GEO.barrel, MAT.gun, 0, 0, -0.1, single).scale.setScalar(0.7);
+    ud.anim = (m, moved, dt) => {
+      ud.ph = (ud.ph || 0) + (moved ? dt * 18 : 0);
+      ud.legs.forEach((q, i) => { q.rotation.x = moved ? Math.sin(ud.ph + i * 1.7) * 0.35 : 0; });
+    };
+  }
+  const shield = new THREE.Mesh(GEO.shield, MAT.shield);
+  shield.position.y = 0.3; shield.visible = false; g.add(shield); ud.shield = shield;
+  g.scale.setScalar(scale || 1);
+  g.userData = ud;
+  return g;
+}
+function makeDroneMesh(pal) {            // дрон: четыре винта на лучах, светящийся глаз снизу
+  const g = new THREE.Group(), body = new THREE.Group();
+  g.add(body);
+  const mat = STD({ map: robotTex(pal), roughness: 0.45, metalness: 0.6 });
+  const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; body.add(o); return o; };
+  add(GEO.ball, mat, 0, 0, 0).scale.set(0.22, 0.1, 0.22);
+  add(GEO.ball, MAT.robEyeB, 0, -0.06, -0.1).scale.set(0.06, 0.05, 0.06);
+  const props = [];
+  for (let k = 0; k < 4; k++) {
+    const a = Math.PI / 4 + k * Math.PI / 2, ax = Math.cos(a) * 0.36, az = Math.sin(a) * 0.36;
+    const arm = add(RGEO.darm, MAT.robDark, ax / 2, 0, az / 2); arm.rotation.y = -a;
+    const hub = new THREE.Group(); hub.position.set(ax, 0.05, az); body.add(hub);
+    const b1 = new THREE.Mesh(GEO.blade, MAT.dark), b2 = new THREE.Mesh(GEO.blade, MAT.dark), disc = new THREE.Mesh(GEO.disc, MAT.disc);
+    b1.scale.set(0.3, 1, 1); b2.scale.set(0.3, 1, 1); b2.rotation.y = Math.PI / 2; disc.scale.setScalar(0.3);
+    hub.add(b1, b2, disc); props.push(hub);
+  }
+  const rotor = new THREE.Group(), tail = new THREE.Group(); body.add(rotor, tail);
+  g.userData = { mat, body, rotor, tail, props, rec: ['heli', pal, 'drone'] };
+  return g;
+}
+function nearestPlayer(e) {
+  let best = null, bd = 1e9;
+  for (const p of players) if (p.alive) { const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < bd) { bd = d; best = p; } }
+  return best;
+}
+function faceTo(e, p) {                  // развернуться к игроку по ближней оси
+  if (!p) return;
+  const dx = p.x - e.x, dz = p.z - e.z, d = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0);
+  e.dir = e.wantDir = d; e.hx = DX[d]; e.hz = DZ[d];
+}
+function carStep(e, dt) {                // машинкой едет 2–3,5 секунды, потом встаёт роботом, делает 2 выстрела
+  e.carT = (e.carT === undefined ? rand(1.5, 3) : e.carT) - dt;
+  if (!e.alt) {
+    e.fireTimer = Math.max(e.fireTimer, 0.5);                       // машинкой не стреляет
+    if (e.carT > 0) return false;
+    e.alt = true; e.carT = 1.5; e.shots = 0; faceTo(e, nearestPlayer(e));
+    beep(300, 700, 0.25, 'square', 0.04);
+    return true;
+  }
+  if (e.shots === 0 && e.carT < 1.05) { fire(e); e.shots = 1; }
+  if (e.shots === 1 && e.carT < 0.55) { fire(e); e.shots = 2; }
+  if (e.carT <= 0) { e.alt = false; e.carT = rand(2, 3.5); }
+  return true;
+}
+function spawnRobotAt(k, x, z) {         // Паучиха выпускает паучков
+  const K = KINDS[k], c = Math.floor(x), r = Math.floor(z);
+  if (enemies.length >= 9 || c < 0 || r < 0 || c >= COLS || r >= ROWS || grid[r][c] !== EMPTY) return;
+  x = c + 0.5; z = r + 0.5;
+  if (players.concat(enemies).some(o => o.alive && Math.abs(o.x - x) < 0.5 + (o.half || HALF) && Math.abs(o.z - z) < 0.5 + (o.half || HALF))) return;
+  const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed, hp: K.hp, maxHp: K.hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
+    debris: K.camo[0], aiTimer: rand(0.3, 0.8), fireTimer: rand(1, 2), stuck: 0, frozen: false, mesh: makeTankMesh(K.camo, K.scale, K.look) };
+  e.mesh.position.set(x, 0, z); dynGroup.add(e.mesh); enemies.push(e); syncTank(e, 1);
+}
+// Паучиха-матка (60-й): кольцо мин, паучки, веер. Мега-робот (70-й): машиной — рывки и веер; на половине жизней
+// встаёт роботом — лазер очередью, топот (кольцо снарядов + землетрясение), веер.
+function roboBossSpecial(e, dt) {
+  const mega = e.kind.name === 'Мега-робот';
+  e.shield = Math.max(0, e.shield - dt);
+  if (mega && !e.alt && e.hp <= e.maxHp / 2) {
+    e.alt = true; e.speed *= 0.7; e.sp = 2.5; e.combo = 0; e.dash = 0;
+    shake = Math.max(shake, 0.6); boom(1.2, 0.8, 300); banner('Мега-робот встаёт!', 1600);
+  }
+  if (e.laser > 0) {                     // лазер: быстрая очередь в одну сторону — можно увернуться
+    e.laser -= dt; e.laserT -= dt;
+    if (e.laserT <= 0) { e.laserT = 0.08; const dx = Math.cos(e.laserA), dz = Math.sin(e.laserA); addShell(e, e.x + dx * 1.0, e.z + dz * 1.0, dx * 9, dz * 9, true, 1, false); }
+  }
+  e.sp -= dt;
+  if (e.sp < 0.6 && !e.charged) { e.charged = true; puff(TEX.glow, mega ? 0xffd040 : 0xc03cff, e.x, 0.6, e.z, 0, 0, 0, 0.6, 1, 2.6, 0.8, true); beep(160, 520, 0.55, 'sawtooth', 0.06); }
+  if (e.sp > 0) return;
+  e.charged = false;
+  if (!mega) {
+    const act = ['mines', 'brood', 'fan'][e.combo++ % 3];
+    if (act === 'mines') {
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, x = e.x + Math.cos(a) * 1.7, z = e.z + Math.sin(a) * 1.7, c = Math.floor(x), r = Math.floor(z); if (c >= 0 && r >= 0 && c < COLS && r < ROWS && grid[r][c] === EMPTY) layMine(x, z); }
+      banner('Паучиха ставит мины!', 1000); e.sp = 6;
+    } else if (act === 'brood') { spawnRobotAt(6, e.x - 1.3, e.z + 0.9); spawnRobotAt(6, e.x + 1.3, e.z + 0.9); e.sp = 6; }
+    else { bossFan(e, 5); e.sp = 4; }
+  } else if (!e.alt) {
+    if (e.combo++ % 2 === 0) { faceTo(e, nearestPlayer(e)); e.dash = 1.3; beep(120, 420, 0.6, 'sawtooth', 0.07); e.sp = 5; }
+    else { bossFan(e, 5); e.sp = 4; }
+  } else {
+    const act = ['laser', 'stomp', 'laser', 'fan'][e.combo++ % 4];
+    if (act === 'laser') { const p = nearestPlayer(e); e.laserA = p ? Math.atan2(p.z - e.z, p.x - e.x) : Math.PI / 2; e.laser = 1.0; e.laserT = 0; beep(900, 1400, 1.0, 'square', 0.04); e.sp = 4; }
+    else if (act === 'stomp') { bossRing(e); earthquake(); e.sp = 5; }
+    else { bossFan(e, 7); e.sp = 4; }
+  }
 }
 function makeTankMeshGeneric(palette, scale) {
   const g = new THREE.Group(), body = new THREE.Group();
@@ -1248,6 +1466,7 @@ function syncTank(t, dt) {
   ud.gun.position.z = (ud.gunZ === undefined ? GUN_Z : ud.gunZ) + t.recoil * 0.07;
   ud.body.rotation.x = t.recoil * 0.05;
   ud.shield.visible = t.shield > 0 && Math.floor(time * 10) % 2 === 0;
+  if (ud.anim) { ud.alt = !!t.alt; ud.anim(m, moved, dt); }
   if (!t.isEnemy) setHpBar(m, Math.max(0, Math.ceil(t.hp)), t.maxHp || 1, t.tank === 'medium' && starsOf(t) >= 1 ? (t.calm || 0) / 10 : 0);
   t.fxT -= dt;
   if (t.fxT <= 0) {
@@ -1300,9 +1519,9 @@ function spawnEnemy() {
     const [c, r] = ENEMY_SPAWNS[(start + i) % ENEMY_SPAWNS.length], x = c + 0.5, z = r + 0.5;
     const busy = players.concat(enemies).some(o => o.alive && Math.abs(o.x - x) < 0.6 + (o.half || HALF) && Math.abs(o.z - z) < 0.6 + (o.half || HALF));
     if (busy) continue;
-    const hp = K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && (k === 0 || k === 2) ? 1 : 0);
+    const hp = K.robo ? K.hp + (level >= 60 ? 1 : 0) + (gameMode === 'hangar' ? 1 : 0) : K.hp + (k === 2 ? tier : Math.floor(tier / 2)) + (gameMode === 'hangar' && (k === 0 || k === 2) ? 1 : 0);
     const e = { isEnemy: true, team: 1, kind: K, alive: true, x, z, dir: 2, wantDir: 2, speed: K.speed * (1 + 0.03 * tier) * (gameMode === 'hangar' ? 1.1 : 1), hp, maxHp: hp, shield: 0, born: 0.4, scale: K.scale, recoil: 0, fxT: 0.3,
-      debris: K.camo[0], aiTimer: rand(0.6, 1.6), fireTimer: rand(1, 2), stuck: 0, frozen: false, mesh: makeTankMesh(K.camo, K.scale) };
+      debris: K.camo[0], aiTimer: rand(0.6, 1.6), fireTimer: rand(1, 2), stuck: 0, frozen: false, mesh: makeTankMesh(K.camo, K.scale, K.look) };
     e.mesh.position.set(x, 0, z); e.mesh.rotation.y = -Math.PI;
     dynGroup.add(e.mesh); enemies.push(e); spawned++;
     syncTank(e, 1);
@@ -1319,9 +1538,9 @@ function tintEnemy(e) {          // подбитый темнеет, замор�
 // Большой танк на каждом 10-м уровне: много жизней (полоска сверху), тройной залп, проламывает кирпич корпусом.
 function spawnBoss() {
   const tier = Math.floor(level / 10), B = BOSSES[Math.min(tier, BOSSES.length - 1)], hp = gameMode === 'hangar' ? 35 + tier * 20 : 18 + tier * 14;
-  const K = { name: B.name, camo: B.camo, hp, score: 3000 + tier * 2000 };
+  const K = { name: B.name, camo: B.camo, hp, score: 3000 + tier * 2000, robo: !!B.robo };
   boss = { isEnemy: true, team: 1, boss: true, kind: K, alive: true, x: 7.5, z: 1.0, dir: 2, wantDir: 2, speed: 0.85 + tier * 0.06, hp, maxHp: hp, half: 0.8, shield: 0, born: 0.4, scale: 2,
-    recoil: 0, fxT: 0.3, debris: B.camo[0], aiTimer: 1.5, fireTimer: 2.5, stuck: 0, frozen: false, sp: 4, combo: 0, mesh: makeTankMesh(B.camo, 2, gameMode === 'hangar' && tier === 0 ? 'ring' : undefined) };
+    recoil: 0, fxT: 0.3, debris: B.camo[0], aiTimer: 1.5, fireTimer: 2.5, stuck: 0, frozen: false, sp: 4, combo: 0, mesh: makeTankMesh(B.camo, 2, gameMode === 'hangar' && tier === 0 ? 'ring' : B.look) };
   boss.mesh.position.set(boss.x, 0, boss.z); boss.mesh.rotation.y = -Math.PI;
   dynGroup.add(boss.mesh); enemies.push(boss); spawned++;
   syncTank(boss, 1);
@@ -1331,6 +1550,7 @@ function spawnBoss() {
 // Гроза — веер снарядов в твою сторону; Титан — щит, под которым чинится; Чёрный барон — всё по очереди.
 // Перед атакой босс «заряжается»: вспышка и гул — есть полсекунды спрятаться.
 function bossSpecial(e, dt) {
+  if (e.kind.robo) { roboBossSpecial(e, dt); return; }
   const tier = Math.min(4, Math.floor(level / 10));
   e.shield = Math.max(0, e.shield - dt);
   if (tier === 3 && e.shield > 0 && e.hp < e.maxHp) {              // Титан под щитом чинится
@@ -1439,7 +1659,8 @@ function hitTiger(dmg) {
 }
 
 // ───────────────────────── Вертолёты, бомбы, самолёт ─────────────────────────
-function makeHeliMesh(pal) {
+function makeHeliMesh(pal, look) {
+  if (look === 'drone') return makeDroneMesh(pal);
   const g = new THREE.Group(), body = new THREE.Group();
   g.add(body);
   const camo = camoTex(pal), mat = STD({ map: camo.map, roughness: 0.6, metalness: 0.4 });
@@ -1459,8 +1680,9 @@ function makeHeliMesh(pal) {
 }
 // вертолёт летит над стенами и водой, зависает над игроком и бросает бомбы; сбить можно обычным выстрелом
 function spawnHeli(K) {
-  const h = { isEnemy: true, team: 1, heli: true, kind: K, alive: true, x: rand(1, COLS - 1), z: -3, y: 1.15, hp: K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0), maxHp: K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0), yaw: Math.PI, tx: 0, tz: 0,
-    aiTimer: 0, bombTimer: rand(2.5, 4), frozen: false, fxT: 0, debris: K.camo[0], mesh: makeHeliMesh(K.camo) };
+  const hhp = K.robo ? K.hp + (level >= 60 ? 1 : 0) : K.hp + Math.floor(level / 20) + (gameMode === 'hangar' ? 1 : 0);
+  const h = { isEnemy: true, team: 1, heli: true, kind: K, alive: true, x: rand(1, COLS - 1), z: -3, y: 1.15, hp: hhp, maxHp: hhp, yaw: Math.PI, tx: 0, tz: 0,
+    aiTimer: 0, bombTimer: rand(2.5, 4), frozen: false, fxT: 0, debris: K.camo[0], mesh: makeHeliMesh(K.camo, K.look) };
   heliTarget(h);
   dynGroup.add(h.mesh); helis.push(h); spawned++;
   syncHeli(h, 0);
@@ -1490,6 +1712,7 @@ function syncHeli(h, dt) {
   m.position.set(h.x, h.y + Math.sin(time * 2 + h.tx) * 0.04, h.z);
   m.rotation.y = h.yaw; u.body.rotation.x = -0.12;
   u.rotor.rotation.y += dt * 30; u.tail.rotation.x += dt * 40;
+  if (u.props) for (const q of u.props) q.rotation.y += dt * 40;
   h.fxT -= dt;
   if (h.fxT <= 0) { h.fxT = 0.12; if (h.hp < h.maxHp) puff(TEX.smoke, 0x1c1c1c, h.x, h.y + 0.1, h.z, rand(-0.1, 0.1), 0.6, rand(-0.1, 0.1), 0.9, 0.15, 0.6, 0.5, false); }
 }
@@ -1580,9 +1803,9 @@ function breakBrick(c, r) {
   const x = c + 0.5, z = r + 0.5;
   grid[r][c] = EMPTY; levelGroup.remove(cellMesh[r][c]); cellMesh[r][c] = null;
   for (let i = 0; i < 5; i++) puff(TEX.smoke, 0xb5927a, x + rand(-0.3, 0.3), rand(0.2, 0.6), z + rand(-0.3, 0.3), rand(-0.4, 0.4), rand(0.2, 0.7), rand(-0.4, 0.4), rand(0.6, 1), 0.35, rand(0.9, 1.3), 0.5, false);
-  debris(x, z, 0x9a4a30, 9, 2, 1.2); debris(x, z, 0x8d867a, 4, 1.6);
+  debris(x, z, roboTheme ? 0x6a7684 : 0x9a4a30, 9, 2, 1.2); debris(x, z, 0x8d867a, 4, 1.6);
   for (let i = 0; i < 3; i++) {                                      // на месте стены остаётся битый кирпич
-    const m = new THREE.Mesh(GEO.rubble, MAT.rubble);
+    const m = new THREE.Mesh(GEO.rubble, roboTheme ? MAT.rubbleR : MAT.rubble);
     m.position.set(x + rand(-0.32, 0.32), 0.03, z + rand(-0.32, 0.32)); m.rotation.set(rand(-0.2, 0.2), rand(0, 6), rand(-0.2, 0.2)); m.receiveShadow = true;
     levelGroup.add(m);
   }
@@ -1988,7 +2211,7 @@ function blowMine(m, victim) {
 function countBricks() { let n = 0; for (const row of grid) for (const v of row) if (v === BRICK) n++; return n; }
 function growBrick(c, r) {             // новая стена поднимается из земли
   grid[r][c] = BRICK;
-  const m = new THREE.Mesh(GEO.brick, MAT.brick);
+  const m = new THREE.Mesh(GEO.brick, roboTheme ? MAT.panel : MAT.brick);
   m.position.set(c + 0.5, -0.36, r + 0.5); m.castShadow = m.receiveShadow = true;
   levelGroup.add(m); cellMesh[r][c] = m; rising.push(m);
   for (let i = 0; i < 3; i++) puff(TEX.smoke, 0xb5927a, c + 0.5 + rand(-0.3, 0.3), 0.1, r + 0.5 + rand(-0.3, 0.3), rand(-0.3, 0.3), 0.3, rand(-0.3, 0.3), 0.8, 0.3, 0.9, 0.4, false);
@@ -2328,7 +2551,7 @@ function netSnapshot() {
     if (!u.rec) continue;
     if (!u.nid) u.nid = ++net.seq;
     const row = [u.nid, r2(m.position.x), r2(m.position.y), r2(m.position.z), r2(m.rotation.x), r2(m.rotation.y), r2(m.rotation.z), r2(m.scale.x), m.visible ? 1 : 0];
-    if (u.rec[0] === 'tank') row.push((u.shield.visible ? 1 : 0) | (u.skirts.visible ? 2 : 0) | (u.plates.visible ? 4 : 0) | (u.twin.visible ? 8 : 0) | (u.launcher.visible ? 16 : 0), r2(u.mat.color.r), r2(u.mat.color.g), r2(u.mat.color.b), u.hpMax > 1 ? u.hpNow : 0, u.hpMax || 0, u.hpFill || 0);
+    if (u.rec[0] === 'tank') row.push((u.shield.visible ? 1 : 0) | (u.skirts.visible ? 2 : 0) | (u.plates.visible ? 4 : 0) | (u.twin.visible ? 8 : 0) | (u.launcher.visible ? 16 : 0) | (u.alt ? 32 : 0), r2(u.mat.color.r), r2(u.mat.color.g), r2(u.mat.color.b), u.hpMax > 1 ? u.hpNow : 0, u.hpMax || 0, u.hpFill || 0);
     else if (u.rec[0] === 'trooper') row.push(u.chute.visible ? 1 : 0);
     if (!net.known.has(u.nid)) { net.known.add(u.nid); n[u.nid] = u.rec; }
     e.push(row);
@@ -2363,7 +2586,7 @@ function netLevel(m) {
 function netBuild(rec) {
   switch (rec[0]) {
     case 'tank': return makeTankMesh(rec[1], rec[2], rec[3]);
-    case 'heli': return makeHeliMesh(rec[1]);
+    case 'heli': return makeHeliMesh(rec[1], rec[2]);
     case 'shell': return shellMesh(rec[1], rec[2]);
     case 'crate': return crateMesh(rec[1]);
     case 'bomb': return bombMesh();
@@ -2399,7 +2622,7 @@ function netApply(m) {
     if (o.kind === 'tank') {
       const f = e[9];
       u.shield.visible = !!(f & 1); u.skirts.visible = !!(f & 2); u.plates.visible = !!(f & 4);
-      u.twin.visible = !!(f & 8); u.single.visible = !(f & 8); u.launcher.visible = !!(f & 16);
+      u.twin.visible = !!(f & 8); u.single.visible = !(f & 8); u.launcher.visible = !!(f & 16); u.alt = !!(f & 32);
       u.mat.color.setRGB(e[10], e[11], e[12]);
       if (e[14] > 1) setHpBar(o.mesh, e[13], e[14], e[15] || 0);
     } else if (o.kind === 'trooper') u.chute.visible = !!e[9];
@@ -2428,6 +2651,8 @@ function netGuestFrame(dt) {
   const k = Math.min(1, dt * 18);                                    // плавно догоняем присланные положения
   for (const o of net.objs.values()) {
     const e = o.t, p = o.mesh.position, r = o.mesh.rotation, u = o.mesh.userData;
+    if (u.anim) u.anim(o.mesh, Math.abs(e[1] - p.x) + Math.abs(e[3] - p.z) > 0.01, dt);
+    if (u.props) for (const q of u.props) q.rotation.y += dt * 40;
     p.x += (e[1] - p.x) * k; p.y += (e[2] - p.y) * k; p.z += (e[3] - p.z) * k;
     r.x += (e[4] - r.x) * k; r.y += (e[5] - r.y) * k; r.z += (e[6] - r.z) * k;
     if (u.rotor) { u.rotor.rotation.y += dt * 30; u.tail.rotation.x += dt * 40; }
@@ -2592,7 +2817,7 @@ function menu() {
   state = 'menu'; duel = false;
   document.body.classList.remove('two');
   showOverlay(author ? 'Танчики 3D — автор' : 'Танчики 3D', (author ? '<p class="small"><b>Режим автора:</b> своё сохранение, токенов и монет без счёта, все танки, уровень на выбор. Сохранения ребят не трогаются.</p>' : '') +
-    '<p>Подбей все вражеские танки. ' + LEVELS.length + ' уровней, каждый десятый — босс.</p>' +
+    '<p>Подбей все вражеские танки. ' + LEVELS.length + ' уровней, каждый десятый — босс. После ' + ROBOT_FROM + '-го — война с роботами.</p>' +
     '<p class="small"><b>Обычная игра</b> — для новичков. <b>Ангар</b> — выбираешь танк, враги сильнее, обойма с перезарядкой.</p>',
     [{ label: 'Обычная игра', fn: () => { gameMode = 'classic'; loadSave(); modeMenu(); } }, { label: 'Ангар', cls: 'red', fn: showHangar },
      { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }]
@@ -2621,7 +2846,7 @@ function authorAsk(note) {
 function askLevel(note) {          // автор выбирает уровень
   state = 'ask';
   const go = () => { const n = parseInt($('lvNum').value, 10); if (n >= 1 && n <= LEVELS.length) beginGame(n - 1); else askLevel('Номер от 1 до ' + LEVELS.length + '.'); };
-  showOverlay('Какой уровень?', (note ? '<p><b>' + note + '</b></p>' : '') + '<p>Боссы — 10, 20, 30, 40, 50. Землетрясения — с ' + (QUAKE_FROM + 1) + '-го.</p>' +
+  showOverlay('Какой уровень?', (note ? '<p><b>' + note + '</b></p>' : '') + '<p>Боссы — каждый десятый (10 … ' + LEVELS.length + '). Роботы — с ' + (ROBOT_FROM + 1) + '-го. Землетрясения — с ' + (QUAKE_FROM + 1) + '-го.</p>' +
     '<input id="lvNum" class="ideaField" inputmode="numeric" maxlength="2" autocomplete="off" value="' + (save.level + 1) + '" style="text-align:center; font-size:30px; max-width:160px">',
     [{ label: 'Играть', fn: go }, { label: 'Магазин', cls: 'blue', fn: () => openShop(() => askLevel('')) }, { label: 'Назад', cls: 'gray', fn: modeMenu }]);
   $('lvNum').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -2721,6 +2946,7 @@ function showHelp() {              // подробная справка — от
     P('<b>Белый тигр</b> всплывает из воды. Подбей его — и до конца уровня сможешь заезжать в воду, там тебя не достать. А если он ушёл сам — вода становится омутом: кто заедет, тот утонет, и ты, и враги.') +
     P('<b>Сложность.</b> На сложном (и всегда в Ангаре) в обойме ' + MAG_SIZE + ' снарядов: когда остаётся ' + RELOAD_AT + ', сама начинается перезарядка, а последние ещё можно выпустить. На сложном монет больше. Когда разбито почти всё поле, стены понемногу вырастают заново.') +
     P('<b>Ангар</b> — танк на выбор: лёгкий Т-26 (быстрый, но с одного попадания), средний Т-34 (выдерживает два), тяжёлый ИС-7 (три, медленный, бьёт сильнее). Танки покупают за токены, а токены — за монеты в магазине. Каждому танку можно купить три звезды: третья даёт способность — у лёгкого помощники, у среднего крепость из бетона, у тяжёлого авианалёт (кнопка на экране, на клавиатуре Q, у синего /).') +
+    P('<b>Восстание машин</b> — после ' + ROBOT_FROM + '-го уровня вместо танков роботы: шагоходы (крепкие), робот-машинки (носятся машинкой, встают роботом и стреляют), пауки-минёры (оставляют мины) и дроны (бомбят сверху, сбиваются ракетой). На 60-м — Паучиха-матка, на 70-м — Мега-робот: на половине жизней встаёт и бьёт лазером.') +
     P('<b>Землетрясение</b> — с ' + (QUAKE_FROM + 1) + '-го уровня земля иногда трясётся и трескается: через провалы не проехать ни тебе, ни врагам (снаряд пролетает), через ' + PIT_TIME + ' секунд они сходятся.') +
     P('<b>Дуэль</b> — друг против друга: подбей соперника ' + DUEL_FRAGS + ' раз или разбей его базу с флагом.'),
     [{ label: 'Назад', fn: menu }], menu);
@@ -2761,7 +2987,7 @@ function startLevel() {
   if (curL().boss) spawnBoss();
   for (const p of players) { p.alive = false; p.strikeUsed = false; p.abilCd = 0; p.allyT = 0; if (p.lives <= 0) p.lives = 1; p.rockets = Math.max(p.rockets, ROCKET_AMMO[up('rocket')]); spawnPlayer(p); }   // выбывший напарник возвращается с одной жизнью
   state = 'play'; last = performance.now();
-  banner(boss ? 'БОСС: ' + boss.kind.name : 'Уровень ' + (level + 1), boss ? 2400 : 1500, true);
+  banner(boss ? 'БОСС: ' + boss.kind.name : level === ROBOT_FROM ? 'Восстание машин!' : 'Уровень ' + (level + 1), boss ? 2400 : 1500, true);
   $('help').innerHTML = twoPlayers
     ? 'Зелёный: W A S D + Пробел, ракета E &nbsp;•&nbsp; Синий: стрелки + Enter, ракета правый Shift &nbsp;•&nbsp; P — пауза'
     : 'Ехать: стрелки или W A S D (две сразу — наискосок) &nbsp;•&nbsp; Стрелять: Пробел &nbsp;•&nbsp; Ракета: E &nbsp;•&nbsp; P — пауза, M — звук';
@@ -2788,7 +3014,13 @@ function showOver() {
 function showWin() {
   state = 'win';
   if (level + 1 >= LEVELS.length) {
-    showOverlay('Победа! 🏆', '<p>Все ' + LEVELS.length + ' уровней пройдены, главный босс повержен!</p>', [{ label: 'В меню', fn: menu }], menu);
+    showOverlay('Победа! 🏆', '<p>Все ' + LEVELS.length + ' уровней пройдены — и танки, и роботы! Мега-робот повержен!</p>', [{ label: 'В меню', fn: menu }], menu);
+    return;
+  }
+  if (level + 1 === ROBOT_FROM) {       // прошли 50-й — начинается война с роботами
+    showOverlay('Чёрный барон повержен!', '<p>Но из порталов полезли роботы… <b>Восстание машин!</b> Уровни ' + (ROBOT_FROM + 1) + '–' + LEVELS.length + '.</p>' +
+      '<p class="small">Шагоходы, робот-машинки (встают роботом и стреляют), пауки-минёры и дроны. На 60-м — Паучиха-матка, на 70-м — Мега-робот. Загляни в магазин.</p>',
+      [{ label: 'В бой ▶', fn: nextLevel }, { label: 'Магазин', cls: 'blue', fn: () => openShop(showWin) }, { label: 'В меню', cls: 'gray', fn: menu }], nextLevel);
     return;
   }
   showOverlay('Уровень ' + (level + 1) + ' пройден!',
@@ -2945,9 +3177,13 @@ function update(dt) {
     for (const e of enemies.slice()) {
       if (e.frozen !== frozen) { e.frozen = frozen; tintEnemy(e); }
       if (frozen) continue;
-      if (e.boss && gameMode === 'hangar') bossSpecial(e, dt);
-      e.aiTimer -= dt; if (e.aiTimer <= 0) pickDir(e);
-      if (moveTank(e, e.wantDir, dt)) e.stuck = 0;
+      if (e.boss && (gameMode === 'hangar' || e.kind.robo)) bossSpecial(e, dt);
+      if (e.kind.car && carStep(e, dt)) continue;                    // робот-машинка встала роботом и стреляет
+      if (e.kind.miner) { e.mineT = (e.mineT === undefined ? rand(2, 4) : e.mineT) - dt; if (e.mineT <= 0) { e.mineT = rand(4, 7); layMine(e.x, e.z); } }
+      e.aiTimer -= dt; if (e.aiTimer <= 0 && !(e.dash > 0)) pickDir(e);
+      const spd0 = e.speed; if (e.dash > 0) { e.dash -= dt; e.speed = spd0 * 2.6; }   // рывок Мега-робота
+      const movedOk = moveTank(e, e.wantDir, dt); e.speed = spd0;
+      if (movedOk) e.stuck = 0;
       else { if (e.boss) ram(e); e.stuck += dt; if (e.stuck > 0.45) { pickDir(e); e.stuck = 0; } }
       e.fireTimer -= dt;
       if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : (rand(0.9, 2.4) - Math.min(level, 5) * 0.1) * (gameMode === 'hangar' ? 0.8 : 1); }
