@@ -723,6 +723,8 @@ const MAT = {
   plane: STD({ color: C(0x7b8792), roughness: 0.4, metalness: 0.6 }),
   marker: new THREE.MeshBasicMaterial({ map: TEX.ring, color: C(0xff2a1a), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
   transport: STD({ color: C(0x5f6b4a), roughness: 0.5, metalness: 0.4 }),
+  fighter: STD({ color: C(0x6fb8f0), roughness: 0.35, metalness: 0.45 }),
+  fighterRed: STD({ color: C(0xd8262a), roughness: 0.45, metalness: 0.2 }),
   trooper: STD({ color: C(0x4a5a3a), roughness: 0.9 }),
   chute: STD({ color: C(0xf0f0ea), roughness: 1, side: THREE.DoubleSide }),
   mineLamp: new THREE.MeshBasicMaterial({ color: C(0xff2a1a) }),
@@ -767,6 +769,12 @@ const GEO = {
   skid: new THREE.BoxGeometry(0.03, 0.03, 0.5),
   fin: new THREE.BoxGeometry(0.02, 0.16, 0.1),
   planeBody: new THREE.CylinderGeometry(0.15, 0.09, 1.7, 10).rotateX(Math.PI / 2),
+  fBody: new THREE.CylinderGeometry(0.1, 0.07, 1.5, 12).rotateX(Math.PI / 2),
+  fNose: new THREE.ConeGeometry(0.1, 0.24, 12).rotateX(-Math.PI / 2),
+  fWing: new THREE.BoxGeometry(1.5, 0.03, 0.36),
+  fTail: new THREE.BoxGeometry(0.62, 0.02, 0.16),
+  fStripe: new THREE.BoxGeometry(1.52, 0.034, 0.07),
+  fRing: new THREE.CylinderGeometry(0.108, 0.108, 0.07, 12).rotateX(Math.PI / 2),
   wing: new THREE.BoxGeometry(2.1, 0.04, 0.42),
   tailWing: new THREE.BoxGeometry(0.75, 0.03, 0.22),
   skirt: new THREE.BoxGeometry(0.03, 0.17, 0.76),
@@ -1055,9 +1063,10 @@ function makeStyledTank(palette, scale, look) {
   return g;
 }
 // полоска «сколько попаданий ещё выдержит» над танком игрока (только если больше одного)
-function setHpBar(mesh, hp, maxHp) {
+function setHpBar(mesh, hp, maxHp, fill) {     // fill — 0…1: как далеко зашла самопочинка следующего деления
   const u = mesh.userData;
-  u.hpNow = hp; u.hpMax = maxHp;
+  fill = hp < maxHp ? Math.round((fill || 0) * 20) / 20 : 0;
+  u.hpNow = hp; u.hpMax = maxHp; u.hpFill = fill;
   if (maxHp <= 1) { if (u.hpBar) u.hpBar.sprite.visible = false; return; }
   if (!u.hpBar) {
     const cv = document.createElement('canvas'); cv.width = 128; cv.height = 24;
@@ -1066,13 +1075,14 @@ function setHpBar(mesh, hp, maxHp) {
     sprite.scale.set(0.62, 0.12, 1); sprite.position.y = 0.95; mesh.add(sprite);
     u.hpBar = { cv, tex, sprite, key: '' };
   }
-  const b = u.hpBar, key = hp + '/' + maxHp;
+  const b = u.hpBar, key = hp + '/' + maxHp + '/' + fill;
   b.sprite.visible = true;
   if (b.key === key) return;
   b.key = key;
   const g = b.cv.getContext('2d'), w = b.cv.width, h = b.cv.height, gap = 6, pw = (w - gap * (maxHp + 1)) / maxHp;
   g.clearRect(0, 0, w, h); g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 0, w, h);
   for (let i = 0; i < maxHp; i++) { g.fillStyle = i < hp ? '#4ee04e' : '#7a1f1f'; g.fillRect(gap + i * (pw + gap), 4, pw, h - 8); }
+  if (fill > 0) { g.fillStyle = '#9ff59f'; g.fillRect(gap + hp * (pw + gap), 4, pw * fill, h - 8); }   // светло-зелёным растёт чинящееся деление
   b.tex.needsUpdate = true;
 }
 function makeTankMeshGeneric(palette, scale) {
@@ -1191,7 +1201,7 @@ function syncTank(t, dt) {
   ud.gun.position.z = (ud.gunZ === undefined ? GUN_Z : ud.gunZ) + t.recoil * 0.07;
   ud.body.rotation.x = t.recoil * 0.05;
   ud.shield.visible = t.shield > 0 && Math.floor(time * 10) % 2 === 0;
-  if (!t.isEnemy) setHpBar(m, Math.max(0, Math.ceil(t.hp)), t.maxHp || 1);
+  if (!t.isEnemy) setHpBar(m, Math.max(0, Math.ceil(t.hp)), t.maxHp || 1, t.tank === 'medium' && starsOf(t) >= 1 ? (t.calm || 0) / 10 : 0);
   t.fxT -= dt;
   if (t.fxT <= 0) {
     t.fxT = 0.11;
@@ -1694,33 +1704,45 @@ function updateAllies(dt) {
 function callStrike(p) {
   p.strikeUsed = true;
   const pts = [], foes = enemies.filter(e => e.alive && !e.ally).concat(helis);
-  foes.sort((a, b) => (b.boss ? 9 : b.hp) - (a.boss ? 9 : a.hp));
-  for (const e of foes) if (pts.length < STRIKE_ROCKETS && !pts.some(q => Math.hypot(q[0] - e.x, q[1] - e.z) < STRIKE_R)) pts.push([e.x, e.z]);
-  while (pts.length < STRIKE_ROCKETS) pts.push([rand(1.5, COLS - 1.5), rand(1, ROWS - 4)]);   // остальные — по верхней части поля, к врагам
-  const dir = Math.random() < 0.5 ? 1 : -1, g = planeMesh(false);
+  foes.sort((a, b) => (b.boss ? 9 : b.hp) - (a.boss ? 9 : a.hp));        // сначала самые крепкие
+  for (const e of foes) if (pts.length < STRIKE_ROCKETS && !pts.some(q => Math.hypot(q.x - e.x, q.z - e.z) < STRIKE_R)) pts.push({ tgt: e, x: e.x, z: e.z });
+  while (pts.length < STRIKE_ROCKETS) pts.push({ tgt: null, x: rand(1.5, COLS - 1.5), z: rand(1, ROWS - 4) });   // врагов мало — по верхней части поля
+  const dir = Math.random() < 0.5 ? 1 : -1, g = fighterMesh();
   g.rotation.y = -dir * Math.PI / 2; g.position.set(dir > 0 ? -6 : COLS + 6, 2.6, ROWS / 2 - 1);
   dynGroup.add(g);
-  const marks = pts.map(([x, z]) => { const m = markerMesh(); m.position.set(x, 0.05, z); m.scale.setScalar(STRIKE_R * 2.2); dynGroup.add(m); return m; });
-  strikes.push({ owner: p, x: g.position.x, z: g.position.z, dir, mesh: g, pts, marks, shot: 0, t: 0, flying: [] });
+  for (const q of pts) { q.mark = markerMesh(); q.mark.position.set(q.x, 0.05, q.z); q.mark.scale.setScalar(STRIKE_R * 2.2); dynGroup.add(q.mark); }
+  strikes.push({ owner: p, x: g.position.x, z: g.position.z, dir, mesh: g, pts, shot: 0, t: 0, flying: [] });
   banner('Авианалёт!', 1200); beep(150, 95, 1.6, 'sawtooth', 0.06);
+}
+function strikeAim(q) {                  // цель погибла раньше — ракета переходит на ближайшего живого врага
+  if (q.tgt && !q.tgt.alive) {
+    let best = null, bd = 1e9;
+    for (const e of enemies.concat(helis)) if (e.alive && !e.ally) { const d = Math.hypot(e.x - q.x, e.z - q.z); if (d < bd) { bd = d; best = e; } }
+    q.tgt = best && bd < 6 ? best : null;
+  }
+  if (q.tgt) { q.x = q.tgt.x; q.z = q.tgt.z; }
+  if (q.mark) q.mark.position.set(q.x, 0.05, q.z);
 }
 function updateStrikes(dt) {
   for (const s of strikes) {
     s.t += dt; s.x += s.dir * 9 * dt; s.mesh.position.x = s.x;
+    for (const q of s.pts) if (!q.done) strikeAim(q);
     if (s.t > 0.5 && s.shot < s.pts.length && s.t > 0.5 + s.shot * 0.18) {          // пускает ракеты одну за другой
-      const [x, z] = s.pts[s.shot], m = rocketMesh();
+      const q = s.pts[s.shot], m = rocketMesh();
       dynGroup.add(m);
-      s.flying.push({ x0: s.x, z0: s.z, x, z, t: 0, mesh: m, mark: s.marks[s.shot] });
+      s.flying.push({ q, x: s.x, y: 2.4, z: s.z, t: 0, mesh: m });
       s.shot++; beep(300, 900, 0.3, 'sawtooth', 0.04);
     }
-    for (const r of s.flying) {
-      r.t += dt / 0.7;
-      const k = Math.min(1, r.t), px = r.x0 + (r.x - r.x0) * k, pz = r.z0 + (r.z - r.z0) * k, py = 2.6 * (1 - k * k);
-      r.mesh.position.set(px, py, pz);
-      r.mesh.lookAt(r.x + world.position.x, 0, r.z + world.position.z);
-      if (k >= 1 && !r.done) { r.done = true; dynGroup.remove(r.mesh, r.mark); strikeBlast(r.x, r.z, s.owner); }
+    for (const r of s.flying) {          // самонаведение: каждый кадр доворачиваем на то место, где цель сейчас
+      const q = r.q; r.t += dt;
+      const left = Math.max(0.05, 0.7 - r.t), k = Math.min(1, dt / left);
+      const nx = r.x + (q.x - r.x) * k, ny = r.y + (0 - r.y) * k, nz = r.z + (q.z - r.z) * k;
+      r.mesh.position.set(nx, ny, nz);
+      r.mesh.lookAt(nx + (nx - r.x) + world.position.x, ny + (ny - r.y), nz + (nz - r.z) + world.position.z);
+      r.x = nx; r.y = ny; r.z = nz;
+      if (r.t >= 0.7 && !q.done) { q.done = true; dynGroup.remove(r.mesh, q.mark); strikeBlast(q.x, q.z, s.owner); }
     }
-    s.flying = s.flying.filter(r => !r.done);
+    s.flying = s.flying.filter(r => !r.q.done);
   }
   strikes = strikes.filter(s => { const out = s.shot >= s.pts.length && !s.flying.length && (s.x < -8 || s.x > COLS + 8); if (out) dynGroup.remove(s.mesh); return !out; });
 }
@@ -2058,6 +2080,17 @@ function planeMesh(troops) {
   g.userData.rec = ['plane', troops ? 1 : 0];
   return g;
 }
+function fighterMesh() {                 // свой самолёт для авианалёта — голубой истребитель с двумя красными полосами
+  const g = new THREE.Group(), add = (geo, mat, x, y, zz) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, zz); o.castShadow = true; g.add(o); return o; };
+  add(GEO.fBody, MAT.fighter, 0, 0, 0); add(GEO.fNose, MAT.fighter, 0, 0, -0.86);
+  add(GEO.fWing, MAT.fighter, 0, 0, 0.05); add(GEO.fTail, MAT.fighter, 0, 0.02, 0.66);
+  add(GEO.fin, MAT.fighter, 0, 0.14, 0.68).scale.set(1.5, 1.6, 2.2);
+  add(GEO.ball, MAT.glass, 0, 0.1, -0.35).scale.set(0.08, 0.07, 0.18);              // кабина
+  for (const zz of [-0.06, 0.16]) { add(GEO.fStripe, MAT.fighterRed, 0, 0.02, zz); add(GEO.fRing, MAT.fighterRed, 0, 0, zz); }
+  g.scale.setScalar(1.6);
+  g.userData.rec = ['fighter'];
+  return g;
+}
 function rocketMesh() {
   const m = new THREE.Group(), body = new THREE.Mesh(GEO.shell, MAT.plane);
   body.scale.set(2, 2, 2.6); m.add(body);
@@ -2244,7 +2277,7 @@ function netSnapshot() {
     if (!u.rec) continue;
     if (!u.nid) u.nid = ++net.seq;
     const row = [u.nid, r2(m.position.x), r2(m.position.y), r2(m.position.z), r2(m.rotation.x), r2(m.rotation.y), r2(m.rotation.z), r2(m.scale.x), m.visible ? 1 : 0];
-    if (u.rec[0] === 'tank') row.push((u.shield.visible ? 1 : 0) | (u.skirts.visible ? 2 : 0) | (u.plates.visible ? 4 : 0) | (u.twin.visible ? 8 : 0) | (u.launcher.visible ? 16 : 0), r2(u.mat.color.r), r2(u.mat.color.g), r2(u.mat.color.b), u.hpMax > 1 ? u.hpNow : 0, u.hpMax || 0);
+    if (u.rec[0] === 'tank') row.push((u.shield.visible ? 1 : 0) | (u.skirts.visible ? 2 : 0) | (u.plates.visible ? 4 : 0) | (u.twin.visible ? 8 : 0) | (u.launcher.visible ? 16 : 0), r2(u.mat.color.r), r2(u.mat.color.g), r2(u.mat.color.b), u.hpMax > 1 ? u.hpNow : 0, u.hpMax || 0, u.hpFill || 0);
     else if (u.rec[0] === 'trooper') row.push(u.chute.visible ? 1 : 0);
     if (!net.known.has(u.nid)) { net.known.add(u.nid); n[u.nid] = u.rec; }
     e.push(row);
@@ -2285,6 +2318,7 @@ function netBuild(rec) {
     case 'bomb': return bombMesh();
     case 'marker': return markerMesh();
     case 'plane': return planeMesh(rec[1]);
+    case 'fighter': return fighterMesh();
     case 'rocket': return rocketMesh();
     case 'trooper': return trooperMesh();
     case 'mine': return mineMesh();
@@ -2316,7 +2350,7 @@ function netApply(m) {
       u.shield.visible = !!(f & 1); u.skirts.visible = !!(f & 2); u.plates.visible = !!(f & 4);
       u.twin.visible = !!(f & 8); u.single.visible = !(f & 8); u.launcher.visible = !!(f & 16);
       u.mat.color.setRGB(e[10], e[11], e[12]);
-      if (e[14] > 1) setHpBar(o.mesh, e[13], e[14]);
+      if (e[14] > 1) setHpBar(o.mesh, e[13], e[14], e[15] || 0);
     } else if (o.kind === 'trooper') u.chute.visible = !!e[9];
   }
   for (const [id, o] of net.objs) if (!seen.has(id)) { dynGroup.remove(o.mesh); net.objs.delete(id); }
