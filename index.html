@@ -1664,7 +1664,7 @@ function showLoadout(p) {            // показать на танке, что
 const MAG_SIZE = 5, RELOAD_TIME = 4, RELOAD_AT = 2;   // обойма; перезарядка сама начинается, когда осталось RELOAD_AT  // сложный режим: столько выстрелов в обойме и столько секунд перезарядка
 const isHard = () => !duel && (gameMode === 'hangar' || save.hard);
 const ROCKET_AMMO = [0, 2, 4, 6, 8, 8];  // сколько ракет на уровень даёт каждая ступень «Ракетной установки»
-const ROCKET_REFILL = 5;                 // 5-я ступень: +1 ракета за столько секунд, пока меньше 8
+const ROCKET_REFILL = 5, ROCKET_REFILL_AT = 4;   // 5-я ступень: осталось 4 ракеты — пополняются по одной за 5 секунд, пока снова не станет 8
 const aimY = t => t.y === undefined ? 0.4 : Math.max(0.25, t.y);
 function targetAlive(t) { return !!t && (t.cargo ? planes.includes(t) && !t.down : t === tiger ? tiger.up : !!t.alive); }
 function rocketTarget(from) {            // сначала самолёт, потом вертолёт, потом Тигр, потом ближайший танк
@@ -2563,7 +2563,7 @@ function buffList(p) {
   if (p.armor) L.push(['armor', p.armor > 1 ? '×' + p.armor : '']);
   if (p.speedT > 0) L.push(['speed', Math.ceil(p.speedT)]);
   if (p.twin && !up('twin')) L.push(['twin', '']);
-  if (p.rockets) L.push(['rocket', '×' + p.rockets]);
+  if (p.rockets || p.refilling) L.push(['rocket', '×' + p.rockets + (p.refilling ? ' · +1 через ' + Math.max(1, Math.ceil(ROCKET_REFILL - (p.rocketT || 0))) + ' с' : '')]);
   if (p.idx === 0 && freezeT > 0) L.push(['freeze', Math.ceil(freezeT)]);
   if (p.idx === 0 && amphibious) L.push(['swim', '']);
   const ab = abilityState(p);
@@ -2892,7 +2892,8 @@ function update(dt) {
       if (!p.alive) { if (p.lives > 0) { p.respawn -= dt; if (p.respawn <= 0) spawnPlayer(p); } continue; }
       p.shield = Math.max(0, p.shield - dt); p.cool -= dt;
       if (p.reload > 0) { p.reload -= dt; if (p.reload <= 0) { p.ammo = magOf(p); beep(500, 900, 0.08, 'square', 0.05); } }
-      if (up('rocket') >= 5 && p.rockets < ROCKET_AMMO[5]) { p.rocketT = (p.rocketT || 0) + dt; if (p.rocketT >= ROCKET_REFILL) { p.rocketT = 0; p.rockets++; showLoadout(p); } } else p.rocketT = 0;
+      if (up('rocket') >= 5 && p.rockets <= ROCKET_REFILL_AT) p.refilling = true;
+      if (p.refilling && p.rockets < ROCKET_AMMO[5]) { p.rocketT = (p.rocketT || 0) + dt; if (p.rocketT >= ROCKET_REFILL) { p.rocketT = 0; p.rockets++; showLoadout(p); } } else { p.rocketT = 0; p.refilling = false; }
       if (p.tank === 'medium' && starsOf(p) >= 1 && p.hp < p.maxHp) {      // самопочинка (1-я звезда среднего)
         p.calm = (p.calm || 0) + dt;
         if (p.calm >= 10) { p.calm = 0; p.hp = Math.min(p.maxHp, Math.floor(p.hp) + 1); puff(TEX.glow, 0x7dff8a, p.x, 0.5, p.z, 0, 0.6, 0, 0.6, 0.4, 1.4, 0.8, true); beep(500, 1000, 0.2, 'sine', 0.06); }
