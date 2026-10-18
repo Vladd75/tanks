@@ -345,7 +345,7 @@ const KINDS = [
 ];
 const PLAYER_CAMO = [['#4f6e30', '#2e4420', '#7c8246'], ['#2f62a0', '#1c3c6c', '#6d94c6']];
 const DX = [0, 1, 0, -1], DZ = [-1, 0, 1, 0];   // 0 вверх, 1 вправо, 2 вниз, 3 влево
-const EMPTY = 0, BRICK = 1, STEEL = 2, WATER = 3;
+const EMPTY = 0, BRICK = 1, STEEL = 2, WATER = 3, PIT = 5;   // PIT — провал от землетрясения
 const HALF = 0.4;                                // половина размера танка (клетка = 1)
 
 
@@ -457,9 +457,12 @@ const TOKEN_PRICE = 40;                  // монет за один токен
 // Звёзды — улучшения танка в ангаре за токены (идея Коли, 18.10.2026). Третья звезда — способность на кнопку.
 const STARS = {
   light: { costs: [44, 66, 110], desc: ['выдерживает на одно попадание больше', 'бомбы, мины и босс бьют вдвое слабее', 'помощники: 2 маленьких танка воюют 10 секунд, снова — через 30 секунд'] },
+  medium: { costs: [55, 80, 135], desc: ['самопочинка: 10 секунд без попаданий — жизнь танка восстанавливается', 'обойма 6 снарядов, перезарядка 3 секунды', 'крепость: ставит перед собой 3 бетонных блока на 15 секунд, снова — через 25 секунд'] },
   heavy: { costs: [66, 99, 165], desc: ['скорость +10 %', 'скорость ещё +20 %', 'авианалёт: свой самолёт бьёт 5 ракетами по врагам, раз за уровень'] },
 };
 const starsOf = p => !p || duel || gameMode !== 'hangar' ? 0 : p.stars | 0;
+const magOf = p => p && p.tank === 'medium' && starsOf(p) >= 2 ? 6 : MAG_SIZE;          // обойма и перезарядка (2-я звезда среднего)
+const reloadOf = p => p && p.tank === 'medium' && starsOf(p) >= 2 ? 3 : RELOAD_TIME;
 const tankStat = (p, key) => {
   if (gameMode !== 'hangar' || !TANKS[p.tank]) return 1;
   let v = TANKS[p.tank][key];
@@ -914,7 +917,7 @@ let grid = [], cellMesh = [];
 let players = [], enemies = [], helis = [], bombs = [], planes = [], bullets = [], particles = [], fx = [], pickups = [], scorches = [];
 let spawned = 0, killed = 0, spawnTimer = 0, clearTimer = 0, shake = 0, time = 0, freezeT = 0, planeTimer = 0;
 let boss = null, tiger = null, tigerTimer = 0, tigerDone = true, amphibious = false, waterCells = [];
-let rockets = [], troopers = [], mines = [], wrecks = [], troopTimer = 0, allies = [], strikes = [];
+let rockets = [], troopers = [], mines = [], wrecks = [], troopTimer = 0, allies = [], strikes = [], temps = [], quakeT = 0;
 let waterTrap = false, sinking = [], origGrid = [], brickTotal = 0, regrow = false, growT = 0, rising = [];
 
 function clearGroup(g) { while (g.children.length) g.remove(g.children[0]); }
@@ -929,7 +932,7 @@ function buildLevel(n) {
   const reserved = new Set(ENEMY_SPAWNS.concat(PLAYER_SPAWNS).map(([c, r]) => c + ',' + r));
   if (levelDef(n).boss) for (let c = 6; c <= 8; c++) for (let r = 0; r <= 2; r++) reserved.add(c + ',' + r);     // место, где стоит босс
   boss = null; tiger = null; amphibious = false; waterCells = [];
-  rockets = []; troopers = []; mines = []; wrecks = []; allies = []; strikes = []; troopTimer = (levelDef(n).troops || 0) * 0.5;
+  rockets = []; troopers = []; mines = []; wrecks = []; allies = []; strikes = []; temps = []; quakeT = rand(20, 35); troopTimer = (levelDef(n).troops || 0) * 0.5;
   sinking = []; rising = []; regrow = false; growT = 4; setWaterTrap(false);
   $('bossBar').style.display = 'none'; document.body.classList.remove('bossOn');
   const map = levelDef(n).map;
@@ -1222,7 +1225,7 @@ function newPlayer(idx) {
 }
 function spawnPlayer(p) {
   const [c, r] = (duel ? DUEL_SPAWNS : PLAYER_SPAWNS)[p.idx];
-  Object.assign(p, { x: c + 0.5, z: r + 0.5, dir: duel && p.idx ? 2 : 0, hx: undefined, ammo: MAG_SIZE, reload: 0, hp: tankStat(p, 'hp'), maxHp: tankStat(p, 'hp'), alive: true, shield: 2.5, cool: 0, born: 0.4, recoil: 0, fxT: 0.3 });
+  Object.assign(p, { x: c + 0.5, z: r + 0.5, dir: duel && p.idx ? 2 : 0, hx: undefined, ammo: magOf(p), reload: 0, calm: 0, hp: tankStat(p, 'hp'), maxHp: tankStat(p, 'hp'), alive: true, shield: 2.5, cool: 0, born: 0.4, recoil: 0, fxT: 0.3 });
   p.mesh = makeTankMesh(PLAYER_CAMO[p.idx], 1, gameMode === 'hangar' ? TANKS[p.tank].look : undefined);
   p.mesh.position.set(p.x, 0, p.z);
   dynGroup.add(p.mesh);
@@ -1562,6 +1565,7 @@ function hitTank(t, dmg, heavyHit) {   // heavyHit — бомба, мина ил
   if (t.shield > 0 || t.born > 0.2) { SFX.clang(); return; }
   if (t.ally) { killAlly(t); return; }
   if (!t.isEnemy && amphibious && cellAt(t.x, t.z) === WATER) { splash(t.x, t.z); return; }     // под водой не достать
+  if (!t.isEnemy) t.calm = 0;
   if (!t.isEnemy && t.armor > 0) {                                  // броня принимает удар на себя и слетает
     t.armor--; showLoadout(t); sparks(t.x, t.z); debris(t.x, t.z, 0x8494a6, 5, 2);
     return;
@@ -1624,13 +1628,15 @@ function launchRocket(p) {
 // ───────────────────────── Способности третьей звезды ─────────────────────────
 // Лёгкий: два маленьких помощника на ALLY_TIME секунд, потом перезарядка ALLY_CD. Тяжёлый: авианалёт раз за уровень.
 const ALLY_TIME = 10, ALLY_CD = 30, STRIKE_ROCKETS = 5, STRIKE_R = 1.4;
-const abilityOf = p => starsOf(p) >= 3 ? (p.tank === 'light' ? 'allies' : p.tank === 'heavy' ? 'strike' : '') : '';
+const abilityOf = p => starsOf(p) >= 3 ? { light: 'allies', medium: 'fort', heavy: 'strike' }[p.tank] || '' : '';
+const FORT_TIME = 15, FORT_CD = 25, QUAKE_FROM = 30, PIT_TIME = 10;   // QUAKE_FROM — с какого уровня (с нуля) трясёт
 function useAbility(p) {
   if (net.role === 'guest') { netSend({ t: 'a' }); return; }
   if (state !== 'play' || !p || !p.alive) return;
   const a = abilityOf(p);
   if (a === 'allies' && p.abilCd <= 0 && !allies.some(o => o.owner === p)) callAllies(p);
   else if (a === 'strike' && !p.strikeUsed) callStrike(p);
+  else if (a === 'fort' && p.abilCd <= 0) callFort(p);
   else beep(220, 160, 0.15, 'square', 0.05);
 }
 function callAllies(p) {
@@ -1729,10 +1735,75 @@ function strikeBlast(x, z, owner) {
   for (const m of mines) if (!m.dead && Math.hypot(m.x - x, m.z - z) < STRIKE_R) blowMine(m);
   lastShooter = null;
 }
+// клетка свободна: пусто, нет танков, ящиков и мин рядом
+function cellFree(c, r, pad) {
+  if (c < 0 || r < 0 || c >= COLS || r >= ROWS || grid[r][c] !== EMPTY) return false;
+  const x = c + 0.5, z = r + 0.5, near = o => Math.abs(o.x - x) < 0.5 + (o.half || HALF) + pad && Math.abs(o.z - z) < 0.5 + (o.half || HALF) + pad;
+  return !players.concat(enemies, allies).some(o => o.alive && near(o)) && !pickups.some(near) && !mines.some(o => !o.dead && near(o));
+}
+function callFort(p) {
+  const d = p.dir, fc = Math.floor(p.x + DX[d] * 1.1), fr = Math.floor(p.z + DZ[d] * 1.1);
+  let made = 0;
+  for (const k of [0, -1, 1]) {
+    const c = fc + (d % 2 ? 0 : k), r = fr + (d % 2 ? k : 0);
+    if (!cellFree(c, r, 0)) continue;
+    placeFort(c, r); temps.push({ c, r, t: FORT_TIME, kind: STEEL }); made++;
+  }
+  if (!made) { beep(220, 160, 0.15, 'square', 0.05); return; }
+  p.abilCd = FORT_CD; banner('Крепость!', 1000);
+}
+function placeFort(c, r) {             // бетонный блок вырастает из земли
+  grid[r][c] = STEEL;
+  const m = new THREE.Mesh(GEO.steel, MAT.steel);
+  m.position.set(c + 0.5, 0.425, r + 0.5); m.castShadow = m.receiveShadow = true;
+  levelGroup.add(m); cellMesh[r][c] = m;
+  for (let i = 0; i < 4; i++) puff(TEX.smoke, 0xb8b2a6, c + 0.5 + rand(-0.4, 0.4), 0.1, r + 0.5 + rand(-0.4, 0.4), rand(-0.4, 0.4), 0.4, rand(-0.4, 0.4), 0.8, 0.3, 1, 0.5, false);
+  SFX.clang();
+}
+const crackMat = (() => {               // провал: тёмная рваная яма с глинистым краем
+  const cv = mkCanvas(64), g = cv.getContext('2d');
+  const blob = (rad, col) => { g.fillStyle = col; g.beginPath(); for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2, rr = rad * (0.8 + Math.random() * 0.3); g.lineTo(32 + Math.cos(a) * rr, 32 + Math.sin(a) * rr); } g.closePath(); g.fill(); };
+  blob(33, '#6b5236'); blob(27, '#2a1d12'); blob(18, '#0d0905');
+  return new THREE.MeshBasicMaterial({ map: texFrom(cv, true), transparent: true, depthWrite: false });
+})();
+function openPit(c, r) {
+  grid[r][c] = PIT;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.12, 1.12), crackMat);
+  m.rotation.x = -Math.PI / 2; m.rotation.z = rand(0, 6); m.position.set(c + 0.5, 0.015, r + 0.5);
+  levelGroup.add(m); cellMesh[r][c] = m;
+  debris(c + 0.5, r + 0.5, 0x6b5236, 4, 1.6);
+  for (let i = 0; i < 3; i++) puff(TEX.smoke, 0x9c8462, c + 0.5 + rand(-0.4, 0.4), 0.1, r + 0.5 + rand(-0.4, 0.4), rand(-0.3, 0.3), 0.6, rand(-0.3, 0.3), 1, 0.3, 1.1, 0.55, false);
+}
+function clearTemp(c, r) {              // время вышло: блок уходит в землю, провал сходится
+  if (grid[r][c] !== STEEL && grid[r][c] !== PIT) return;
+  grid[r][c] = EMPTY; levelGroup.remove(cellMesh[r][c]); cellMesh[r][c] = null;
+  for (let i = 0; i < 3; i++) puff(TEX.smoke, 0x9c8462, c + 0.5 + rand(-0.3, 0.3), 0.15, r + 0.5 + rand(-0.3, 0.3), rand(-0.3, 0.3), 0.5, rand(-0.3, 0.3), 0.8, 0.3, 1, 0.45, false);
+}
+function earthquake() {                 // трещины: 4–6 штук по 3–5 клеток, через PIT_TIME секунд сходятся
+  shake = Math.max(shake, 0.8); boom(1.6, 0.7, 180);
+  if (state === 'net') return;            // гостю — только тряска, трещины придут от ведущего
+  banner('Землетрясение!', 1400);
+  const n = 4 + randInt(3);
+  for (let k = 0; k < n; k++) {
+    let c = 1 + randInt(COLS - 2), r = 2 + randInt(ROWS - 5);      // не у своей базы и не у ворот врага
+    const horiz = Math.random() < 0.5, len = 3 + randInt(3);
+    for (let i = 0; i < len; i++) {
+      if (r >= 2 && r <= ROWS - 4 && cellFree(c, r, 0.35)) { openPit(c, r); temps.push({ c, r, t: PIT_TIME + rand(0, 1.5), kind: PIT }); }
+      if (horiz) { c += 1; if (Math.random() < 0.3) r += Math.random() < 0.5 ? 1 : -1; }
+      else { r += 1; if (Math.random() < 0.3) c += Math.random() < 0.5 ? 1 : -1; }
+    }
+  }
+}
+function updateTemps(dt) {
+  if (!duel && !curL().boss && level >= QUAKE_FROM) { quakeT -= dt; if (quakeT <= 0) { earthquake(); quakeT = rand(40, 60); } }
+  for (const t of temps) { t.t -= dt; if (t.t <= 0) clearTemp(t.c, t.r); }
+  temps = temps.filter(t => t.t > 0);
+}
 function abilityState(p) {         // для кнопки и значка: [вид, секунды или 0 — готово, -1 — уже потрачено]
   const a = abilityOf(p);
   if (!a) return null;
   if (a === 'strike') return ['strike', p.strikeUsed ? -1 : 0];
+  if (a === 'fort') return ['fort', Math.max(0, Math.ceil(p.abilCd))];
   return ['allies', p.allyT > 0 ? -2 : Math.max(0, Math.ceil(p.abilCd))];
 }
 function fireball(x, y, z, n) {
@@ -2138,7 +2209,7 @@ function netMessage(m) {
   }
 }
 // ведущий: всё, что видно и слышно (взрывы, вспышки, надписи), записываем и отправляем гостю
-for (const name of ['breakBrick', 'growBrick', 'setWaterTrap', 'sparks', 'splash', 'fireball', 'banner', 'muzzleFx', 'sfx', 'removeBase', 'explodeTank', 'buildLevel']) {
+for (const name of ['breakBrick', 'growBrick', 'placeFort', 'openPit', 'clearTemp', 'earthquake', 'setWaterTrap', 'sparks', 'splash', 'fireball', 'banner', 'muzzleFx', 'sfx', 'removeBase', 'explodeTank', 'buildLevel']) {
   const orig = window[name];
   window[name] = function (...a) {
     if (net.role === 'host' && net.peer) {
@@ -2184,7 +2255,7 @@ function netSnapshot() {
     rk: players[1] ? players[1].rockets : 0,
     bf: [buffList(players[0]), buffList(players[1])],
     ab: players[1] ? abilityState(players[1]) : null,
-    am: isHard() && players[1] ? [players[1].ammo, Math.round(players[1].reload * 20) / 20] : 0,
+    am: isHard() && players[1] ? [players[1].ammo, Math.round(players[1].reload * 20) / 20, magOf(players[1]), reloadOf(players[1])] : 0,
     ov: $('overlay').classList.contains('hidden') ? '' : $('ovTitle').textContent });
   net.ev = [];
 }
@@ -2420,6 +2491,9 @@ BUFF_ICON.allies = (() => { const cv = mkCanvas(64), g = cv.getContext('2d'); g.
 BUFF_ICON.strike = (() => { const cv = mkCanvas(64), g = cv.getContext('2d'); g.fillStyle = '#2c4f86'; g.fillRect(0, 0, 64, 64);
   g.fillStyle = '#eef3ff'; g.fillRect(28, 6, 8, 52); g.fillRect(6, 24, 52, 9); g.fillRect(18, 48, 28, 6);
   return cv.toDataURL(); })();
+BUFF_ICON.fort = (() => { const cv = mkCanvas(64), g = cv.getContext('2d'); g.fillStyle = '#5c5f63'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#d6d8da'; for (const x of [6, 24, 42]) g.fillRect(x, 20, 16, 30); g.fillStyle = '#9fa3a7'; for (const x of [6, 24, 42]) g.fillRect(x, 20, 16, 6);
+  return cv.toDataURL(); })();
 const buffCache = ['', ''];
 function renderBuffs(i, list) {
   const key = JSON.stringify(list || []);
@@ -2529,7 +2603,8 @@ function showHelp() {              // подробная справка — от
     P('<b>С неба.</b> Красный круг на земле — туда падает бомба, уезжай. Самолёт и вертолёт сбиваются ракетой. Парашютисты ставят мины — мигают красным, их можно расстрелять.') +
     P('<b>Белый тигр</b> всплывает из воды. Подбей его — и до конца уровня сможешь заезжать в воду, там тебя не достать. А если он ушёл сам — вода становится омутом: кто заедет, тот утонет, и ты, и враги.') +
     P('<b>Сложность.</b> На сложном (и всегда в Ангаре) в обойме ' + MAG_SIZE + ' снарядов: когда остаётся ' + RELOAD_AT + ', сама начинается перезарядка, а последние ещё можно выпустить. На сложном монет больше. Когда разбито почти всё поле, стены понемногу вырастают заново.') +
-    P('<b>Ангар</b> — танк на выбор: лёгкий Т-26 (быстрый, но с одного попадания), средний Т-34 (выдерживает два), тяжёлый ИС-7 (три, медленный, бьёт сильнее). Танки покупают за токены, а токены — за монеты в магазине. Лёгкому и тяжёлому можно купить три звезды: третья даёт способность — у лёгкого помощники, у тяжёлого авианалёт (кнопка на экране, на клавиатуре Q, у синего /).') +
+    P('<b>Ангар</b> — танк на выбор: лёгкий Т-26 (быстрый, но с одного попадания), средний Т-34 (выдерживает два), тяжёлый ИС-7 (три, медленный, бьёт сильнее). Танки покупают за токены, а токены — за монеты в магазине. Каждому танку можно купить три звезды: третья даёт способность — у лёгкого помощники, у среднего крепость из бетона, у тяжёлого авианалёт (кнопка на экране, на клавиатуре Q, у синего /).') +
+    P('<b>Землетрясение</b> — с ' + (QUAKE_FROM + 1) + '-го уровня земля иногда трясётся и трескается: через провалы не проехать ни тебе, ни врагам (снаряд пролетает), через ' + PIT_TIME + ' секунд они сходятся.') +
     P('<b>Дуэль</b> — друг против друга: подбей соперника ' + DUEL_FRAGS + ' раз или разбей его базу с флагом.'),
     [{ label: 'Назад', fn: menu }], menu);
 }
@@ -2643,7 +2718,7 @@ let hudCache = '';
 function abilButton(i, ab) {      // кнопка способности: «ПОМОЩЬ» / «НАЛЁТ», при перезарядке — секунды
   const b = $('abilBtn' + i);
   if (!ab || ab[1] === -1) { b.style.display = 'none'; return; }
-  const txt = ab[1] > 0 ? String(ab[1]) : ab[1] === -2 ? 'В БОЮ' : ab[0] === 'allies' ? 'ПОМОЩЬ' : 'НАЛЁТ';
+  const txt = ab[1] > 0 ? String(ab[1]) : ab[1] === -2 ? 'В БОЮ' : { allies: 'ПОМОЩЬ', strike: 'НАЛЁТ', fort: 'КРЕПОСТЬ' }[ab[0]];
   b.style.display = 'flex'; b.classList.toggle('wait', ab[1] > 0);
   if (b.textContent !== txt) b.textContent = txt;
 }
@@ -2699,15 +2774,19 @@ function update(dt) {
     for (const p of players) {
       if (!p.alive) { if (p.lives > 0) { p.respawn -= dt; if (p.respawn <= 0) spawnPlayer(p); } continue; }
       p.shield = Math.max(0, p.shield - dt); p.cool -= dt;
-      if (p.reload > 0) { p.reload -= dt; if (p.reload <= 0) { p.ammo = MAG_SIZE; beep(500, 900, 0.08, 'square', 0.05); } }
+      if (p.reload > 0) { p.reload -= dt; if (p.reload <= 0) { p.ammo = magOf(p); beep(500, 900, 0.08, 'square', 0.05); } }
       if (up('rocket') >= 5 && p.rockets < ROCKET_AMMO[5]) { p.rocketT = (p.rocketT || 0) + dt; if (p.rocketT >= ROCKET_REFILL) { p.rocketT = 0; p.rockets++; showLoadout(p); } } else p.rocketT = 0;
+      if (p.tank === 'medium' && starsOf(p) >= 1 && p.hp < p.maxHp) {      // самопочинка (1-я звезда среднего)
+        p.calm = (p.calm || 0) + dt;
+        if (p.calm >= 10) { p.calm = 0; p.hp = Math.min(p.maxHp, Math.floor(p.hp) + 1); puff(TEX.glow, 0x7dff8a, p.x, 0.5, p.z, 0, 0.6, 0, 0.6, 0.4, 1.4, 0.8, true); beep(500, 1000, 0.2, 'sine', 0.06); }
+      } else p.calm = 0;
       p.speedT = Math.max(0, p.speedT - dt); p.speed = PLAYER_SPEED * tankStat(p, 'speed') * (1 + 0.08 * up('speed')) * (p.speedT > 0 ? SPEED_BOOST : 1);
       const st = held[p.idx];
       const iv = inputVector(st);
       if (iv) movePlayer(p, iv[0], iv[1], dt);
       if (fireHeld[p.idx] && p.cool <= 0 && (!isHard() || p.ammo > 0) && bulletsOf(p) < (p.twin ? 4 : 2)) {
         fire(p); p.cool = 0.33 * Math.pow(0.85, up('rate'));
-        if (isHard()) { p.ammo--; if (p.ammo <= RELOAD_AT && !(p.reload > 0)) p.reload = RELOAD_TIME; }   // осталось 2 — заряжаем, а их ещё можно выпустить
+        if (isHard()) { p.ammo--; if (p.ammo <= RELOAD_AT && !(p.reload > 0)) p.reload = reloadOf(p); }   // осталось 2 — заряжаем, а их ещё можно выпустить
       }
     }
     const L = curL();
@@ -2756,7 +2835,7 @@ function update(dt) {
       if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : (rand(0.9, 2.4) - Math.min(level, 5) * 0.1) * (gameMode === 'hangar' ? 0.8 : 1); }
     }
   }
-  if (state === 'play') { updateAllies(dt); updateStrikes(dt); }
+  if (state === 'play') { updateAllies(dt); updateStrikes(dt); updateTemps(dt); }
   for (const t of players) if (t.alive) syncTank(t, dt);
   for (const t of enemies) syncTank(t, dt);
   for (const t of allies) syncTank(t, dt);
@@ -2827,19 +2906,21 @@ function update(dt) {
 }
 
 const ammoShown = ['', ''];
-for (const i of [0, 1]) $('ammo' + i).firstElementChild.innerHTML = '<i></i>'.repeat(MAG_SIZE);
+
 function updateAmmoBars() {
   for (const i of [0, 1]) {
     let a = null;                                                    // [осталось снарядов, секунд до конца перезарядки]
     if (state === 'net') { if (i === 0) a = net.am; }
-    else if ((state === 'play' || state === 'clear' || state === 'pause') && isHard() && players[i] && (i === 0 || (twoPlayers && net.role !== 'host'))) a = [players[i].ammo, players[i].reload];
-    const k = a && a[1] > 0 ? Math.max(0, Math.min(1, 1 - a[1] / RELOAD_TIME)) : 0;
-    const key = !a ? '' : 'a' + a[0] + 'r' + (a[1] > 0 ? Math.round(k * 50) : '-');
+    else if ((state === 'play' || state === 'clear' || state === 'pause') && isHard() && players[i] && (i === 0 || (twoPlayers && net.role !== 'host'))) a = [players[i].ammo, players[i].reload, magOf(players[i]), reloadOf(players[i])];
+    const k = a && a[1] > 0 ? Math.max(0, Math.min(1, 1 - a[1] / (a[3] || RELOAD_TIME))) : 0;
+    const key = !a ? '' : 'a' + a[0] + 'm' + a[2] + 'r' + (a[1] > 0 ? Math.round(k * 50) : '-');
     if (key === ammoShown[i]) continue;
     ammoShown[i] = key;
     const el = $('ammo' + i), segs = el.firstElementChild, fill = el.lastElementChild;
     el.style.display = a ? 'block' : 'none';
     if (!a) continue;
+    const mag = a[2] || MAG_SIZE;
+    if (segs.children.length !== mag) segs.innerHTML = '<i></i>'.repeat(mag);
     [...segs.children].forEach((seg, n) => seg.classList.toggle('on', n < a[0]));       // жёлтые — сколько снарядов осталось
     fill.style.display = a[1] > 0 ? 'block' : 'none';                                    // полоска снизу — идёт перезарядка
     if (a[1] > 0) { fill.style.width = (k * 100) + '%'; fill.style.background = 'hsl(' + Math.round(k * 120) + ', 85%, 48%)'; }
