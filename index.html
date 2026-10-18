@@ -422,7 +422,12 @@ for (const u of SHOP) save.up[u.key] = 0;
 // Два режима: 'classic' — обычная игра для новичков (какой была), 'hangar' — с ангаром и выбором танка.
 // У каждого свои монеты, покупки и уровни.
 let gameMode = 'classic';
-const saveKey = () => gameMode === 'hangar' ? SAVE_KEY + '_hangar' : SAVE_KEY;
+// Режим автора (для Влада — проверять игру): отдельное сохранение, токенов и монет без счёта, все танки, любой уровень.
+// Вход: в главном меню 5 раз быстро нажать на заголовок «Танчики 3D» и ввести кодовое слово (в коде хранится только его отпечаток).
+let author = false;
+const AUTHOR_HASH = 2216113515;
+const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h; };
+const saveKey = () => (gameMode === 'hangar' ? SAVE_KEY + '_hangar' : SAVE_KEY) + (author ? '_author' : '');
 function loadSave() {
   save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, heavy: 0 };
   for (const u of SHOP) save.up[u.key] = 0;
@@ -435,10 +440,17 @@ function loadSave() {
       if (d.owned) for (const k in save.owned) save.owned[k] = k === 'medium' || !!d.owned[k];
       if (TANKS[d.tank] && save.owned[d.tank]) save.tank = d.tank;
       if (d.stars) for (const k in save.stars) save.stars[k] = Math.max(0, Math.min(3, d.stars[k] | 0));
-    } else if (gameMode === 'classic') save.level = Math.max(0, Math.min(LEVELS.length - 1, parseInt(localStorage.getItem('tanks3d_level')) || 0));   // от прошлой версии
+    } else if (gameMode === 'classic' && !author) save.level = Math.max(0, Math.min(LEVELS.length - 1, parseInt(localStorage.getItem('tanks3d_level')) || 0));   // от прошлой версии
   } catch (e) {}
+  authorFill();
 }
-function storeSave() { try { localStorage.setItem(saveKey(), JSON.stringify(save)); } catch (e) {} }
+function authorFill() {             // у автора всего вдоволь
+  if (!author) return;
+  save.tokens = Math.max(save.tokens, 99999); save.coins = Math.max(save.coins, 999999);
+  for (const k in save.owned) save.owned[k] = true;
+}
+function storeSave() {
+  authorFill(); try { localStorage.setItem(saveKey(), JSON.stringify(save)); } catch (e) {} }
 function resetSave() { save.level = 0; save.coins = 0; for (const u of SHOP) save.up[u.key] = 0; storeSave(); }
 let levelCoins = 0;
 function earn(n) { if (duel) return 0; const v = Math.round(n * (1 + 0.25 * up('coins')) * (save.hard ? 1.25 : 1)); save.coins += v; levelCoins += v; return v; }
@@ -2576,11 +2588,41 @@ function menu() {
   net.lobby = false; netClose();
   state = 'menu'; duel = false;
   document.body.classList.remove('two');
-  showOverlay('Танчики 3D', '<p>Подбей все вражеские танки. ' + LEVELS.length + ' уровней, каждый десятый — босс.</p>' +
+  showOverlay(author ? 'Танчики 3D — автор' : 'Танчики 3D', (author ? '<p class="small"><b>Режим автора:</b> своё сохранение, токенов и монет без счёта, все танки, уровень на выбор. Сохранения ребят не трогаются.</p>' : '') +
+    '<p>Подбей все вражеские танки. ' + LEVELS.length + ' уровней, каждый десятый — босс.</p>' +
     '<p class="small"><b>Обычная игра</b> — для новичков. <b>Ангар</b> — выбираешь танк, враги сильнее, обойма с перезарядкой.</p>',
     [{ label: 'Обычная игра', fn: () => { gameMode = 'classic'; loadSave(); modeMenu(); } }, { label: 'Ангар', cls: 'red', fn: showHangar },
-     { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }]);
+     { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }]
+      .concat(author ? [{ label: 'Выйти из режима автора', cls: 'gray', fn: () => { author = false; loadSave(); menu(); } }] : []));
   $('help').textContent = '';
+}
+let titleTaps = [];
+$('ovTitle').addEventListener('click', () => {      // 5 быстрых нажатий на заголовок главного меню — вход для автора
+  if (state !== 'menu' || author) return;
+  const now = performance.now();
+  titleTaps = titleTaps.filter(t => now - t < 2500); titleTaps.push(now);
+  if (titleTaps.length >= 5) { titleTaps = []; authorAsk(''); }
+});
+function authorAsk(note) {
+  state = 'ask';
+  const go = () => {
+    if (fnv(($('authPw').value || '').trim().toLowerCase().replace(/\s+/g, '')) === AUTHOR_HASH) { author = true; loadSave(); storeSave(); SFX.pickup(); menu(); }
+    else authorAsk('Не то слово.');
+  };
+  showOverlay('Вход для автора', (note ? '<p><b>' + note + '</b></p>' : '') + '<p>Кодовое слово:</p>' +
+    '<input id="authPw" class="ideaField" type="password" autocomplete="off" style="text-align:center; font-size:24px; max-width:260px">',
+    [{ label: 'Войти', fn: go }, { label: 'Назад', cls: 'gray', fn: menu }]);
+  $('authPw').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  setTimeout(() => { if ($('authPw')) $('authPw').focus(); }, 60);
+}
+function askLevel(note) {          // автор выбирает уровень
+  state = 'ask';
+  const go = () => { const n = parseInt($('lvNum').value, 10); if (n >= 1 && n <= LEVELS.length) beginGame(n - 1); else askLevel('Номер от 1 до ' + LEVELS.length + '.'); };
+  showOverlay('Какой уровень?', (note ? '<p><b>' + note + '</b></p>' : '') + '<p>Боссы — 10, 20, 30, 40, 50. Землетрясения — с ' + (QUAKE_FROM + 1) + '-го.</p>' +
+    '<input id="lvNum" class="ideaField" inputmode="numeric" maxlength="2" autocomplete="off" value="' + (save.level + 1) + '" style="text-align:center; font-size:30px; max-width:160px">',
+    [{ label: 'Играть', fn: go }, { label: 'Назад', cls: 'gray', fn: modeMenu }]);
+  $('lvNum').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  setTimeout(() => { if ($('lvNum')) { $('lvNum').focus(); $('lvNum').select(); } }, 60);
 }
 function modeMenu() {             // как играть: одному, вдвоём, дуэль, по сети
   state = 'modes'; duel = false;
@@ -2682,7 +2724,7 @@ function startGame(two) {
   twoPlayers = two;
   document.body.classList.toggle('two', two && net.role !== 'host');
   goFullscreen();
-  const go = () => { if (save.level > 0 || save.coins > 0 || SHOP.some(u => save.up[u.key] > 0)) askContinue(); else beginGame(0); };
+  const go = () => { if (author) askLevel(''); else if (save.level > 0 || save.coins > 0 || SHOP.some(u => save.up[u.key] > 0)) askContinue(); else beginGame(0); };
   if (gameMode === 'hangar') go(); else askDifficulty(go);        // в ангаре выбора сложности нет — там всегда обойма
 }
 function askDifficulty(then) {
