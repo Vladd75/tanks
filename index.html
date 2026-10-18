@@ -428,8 +428,9 @@ let author = false;
 const AUTHOR_HASH = 2216113515;
 const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h; };
 const saveKey = () => (gameMode === 'hangar' ? SAVE_KEY + '_hangar' : SAVE_KEY) + (author ? '_author' : '');
+let compNote = false;
 function loadSave() {
-  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, medium: 0, heavy: 0 };
+  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, medium: 0, heavy: 0 }; save.comp1 = true;
   for (const u of SHOP) save.up[u.key] = 0;
   try {
     const d = JSON.parse(localStorage.getItem(saveKey()) || 'null');
@@ -440,6 +441,8 @@ function loadSave() {
       if (d.owned) for (const k in save.owned) save.owned[k] = k === 'medium' || !!d.owned[k];
       if (TANKS[d.tank] && save.owned[d.tank]) save.tank = d.tank;
       if (d.stars) for (const k in save.stars) save.stars[k] = Math.max(0, Math.min(3, d.stars[k] | 0));
+      // 18.10.2026: звезда среднего танка не сохранялась, токены пропадали — один раз возвращаем 110 токенов в старые сохранения ангара
+      if (gameMode === 'hangar' && !author && !d.comp1) { save.tokens += 110; compNote = true; save.comp1 = true; try { localStorage.setItem(saveKey(), JSON.stringify(save)); } catch (e) {} }
     } else if (gameMode === 'classic' && !author) save.level = Math.max(0, Math.min(LEVELS.length - 1, parseInt(localStorage.getItem('tanks3d_level')) || 0));   // от прошлой версии
   } catch (e) {}
   authorFill();
@@ -2649,7 +2652,9 @@ function showHangar() {           // ангар: выбрать или купи�
     const sp2 = spd === 1 ? 'обычная' : (spd > 1 ? '+' : '−') + Math.round(Math.abs(spd - 1) * 100) + ' %';
     return '<div class="shopRow"><div><b>' + T.name + ' «' + T.proto + '»</b><br><small>выдерживает ' + hp + ' ' + word(hp) + ' · скорость ' + sp2 + ' · урон ' + String(T.dmg).replace('.', ',') + '</small></div>' + btn + '</div>' + starRow;
   }).join('');
-  showOverlay('Ангар', '<p class="wallet">Токенов: <b>' + save.tokens + '</b></p><p class="small">Токены меняются на монеты в магазине между уровнями: ' + TOKEN_PRICE + ' монет = 1 токен.</p><div class="shop">' + rows + '</div>',
+  const note = compNote ? '<p><b>Извините!</b> Звезда среднего танка раньше не сохранялась, и токены пропадали. Возвращаем <b>110 токенов</b>.</p>' : '';
+  compNote = false;
+  showOverlay('Ангар', note + '<p class="wallet">Токенов: <b>' + save.tokens + '</b></p><p class="small">Токены меняются на монеты в магазине между уровнями: ' + TOKEN_PRICE + ' монет = 1 токен.</p><div class="shop">' + rows + '</div>',
     [{ label: 'Дальше ▶', fn: modeMenu }, { label: 'Назад', cls: 'gray', fn: menu }], modeMenu);
   $('ovText').querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => { save.tank = b.dataset.pick; storeSave(); showHangar(); }));
   $('ovText').querySelectorAll('[data-star]').forEach(b => b.addEventListener('click', () => {
