@@ -22,6 +22,23 @@
     font-size: 64px; font-weight: 800; color: #fff; text-shadow: 0 4px 0 #26331f, 0 8px 18px rgba(0,0,0,.6);
     opacity: 0; transition: opacity .4s; pointer-events: none; }
   #banner.on { opacity: 1; }
+  /* во время боя объявления маленькие и сверху, чтобы не закрывать поле (идея Ивана, 18.10.2026) */
+  #banner.small { top: 58px; left: 50%; right: auto; transform: translateX(-50%); font-size: 24px; font-weight: 800; white-space: nowrap;
+    background: rgba(20, 26, 22, .74); padding: 5px 16px; border-radius: 14px; text-shadow: none; }
+  body.bossOn #banner.small { top: 98px; }
+  /* значки подобранных бонусов: зелёный — слева, синий — справа */
+  .buffs { position: fixed; top: 60px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  #buffs0 { left: 8px; } #buffs1 { right: 8px; align-items: flex-end; }
+  .buffs div { display: flex; align-items: center; gap: 6px; background: rgba(20, 26, 22, .74); color: #fff; border-radius: 10px;
+    padding: 3px 9px 3px 3px; font-size: 18px; font-weight: 700; min-height: 30px; }
+  .buffs img { width: 30px; height: 30px; border-radius: 6px; display: block; }
+  .buffs div.end { animation: buffBlink .5s steps(2) infinite; }
+  @keyframes buffBlink { 50% { opacity: .35; } }
+  /* телефон держат вертикально — просим повернуть */
+  #rotate { display: none; position: fixed; inset: 0; z-index: 50; background: #1c2a1c; color: #fff; text-align: center;
+    flex-direction: column; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; padding: 20px; box-sizing: border-box; }
+  #rotate b { font-size: 70px; display: block; margin-bottom: 14px; transform: rotate(-90deg); }
+  @media (orientation: portrait) and (max-width: 600px) { body.touch #rotate { display: flex; } }
   #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(12, 18, 14, .6); }
   #overlay.hidden { display: none; }
@@ -47,6 +64,11 @@
     .card p.wallet { font-size: 16px; }
     #banner { font-size: 40px; }
     #hud span { font-size: 14px; padding: 4px 9px; }
+    #banner.small { top: 40px; font-size: 18px; padding: 3px 12px; }
+    body.bossOn #banner.small { top: 78px; }
+    .buffs { top: 44px; gap: 4px; }
+    .buffs div { font-size: 14px; padding: 2px 7px 2px 2px; min-height: 24px; }
+    .buffs img { width: 24px; height: 24px; }
   }
   .card h1 { margin: 0 0 10px; font-size: 42px; color: #3a5a26; }
   .card p { margin: 8px 0; font-size: 18px; color: #333; line-height: 1.45; }
@@ -128,6 +150,8 @@
 <div id="pauseBtn">❚❚</div>
 <div id="bossBar"><div id="bossName"></div><div id="bossTrack"><div id="bossFill"></div></div></div>
 <div id="banner"></div>
+<div id="buffs0" class="buffs"></div><div id="buffs1" class="buffs"></div>
+<div id="rotate"><b>📱</b>Поверни телефон боком —<br>так удобнее играть</div>
 <div id="help"></div>
 <div id="ammo0" class="ammoBar"><div class="ammoSegs"></div><div class="ammoFill"></div></div>
 <div id="ammo1" class="ammoBar"><div class="ammoSegs"></div><div class="ammoFill"></div></div>
@@ -451,13 +475,21 @@ const up = k => duel ? 0 : save.up[k];          // в дуэли купленн�
 const rand = (a, b) => a + Math.random() * (b - a);
 const randInt = n => Math.floor(Math.random() * n);
 const MOBILE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+// Айфон/айпад: Safari даёт странице мало памяти и при нехватке перезагружает её («вылетает»).
+// Поэтому только там картинка проще: меньше точек, тени попроще. Андроид и компьютер — как были.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 if (MOBILE) document.body.classList.add('touch');
 
 // ───────────────────────── Рендер и свет ─────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 2));
+const renderer = new THREE.WebGLRenderer({ antialias: !IOS, powerPreference: IOS ? 'default' : 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IOS ? 1.25 : MOBILE ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = IOS ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+// если видеокарта всё же сбросила картинку — не чёрный экран, а кнопка «Перезапустить» (уровень сохранён)
+renderer.domElement.addEventListener('webglcontextlost', e => {
+  e.preventDefault(); state = 'ask';
+  showOverlay('Картинка сбилась', '<p>Телефону не хватило памяти. Пройденные уровни и монеты сохранены.</p>', [{ label: 'Перезапустить', fn: () => location.reload() }]);
+});
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -477,7 +509,7 @@ scene.add(new THREE.HemisphereLight(C(0xcfe2ff), C(0x6a5a3c), 0.35));
 const sun = new THREE.DirectionalLight(C(0xfff0d2), 2.1);
 sun.position.copy(SUN_DIR).multiplyScalar(22);
 sun.castShadow = true;
-sun.shadow.mapSize.set(MOBILE ? 1024 : 2048, MOBILE ? 1024 : 2048);
+sun.shadow.mapSize.set(IOS ? 512 : MOBILE ? 1024 : 2048, IOS ? 512 : MOBILE ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 50 });
 sun.shadow.camera.updateProjectionMatrix();
 sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02;
@@ -741,6 +773,7 @@ for (const k of BONUS_KEYS) {
   g.fillStyle = B.bg; g.fillRect(0, 0, 64, 64);
   B.draw(g);
   g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 5; g.strokeRect(2.5, 2.5, 59, 59);
+  B.icon = cv.toDataURL();
   B.mat = STD({ map: texFrom(cv, true), roughness: 0.55, metalness: 0.1 });
   B.glowMat = new THREE.SpriteMaterial({ map: TEX.glow, color: C(B.glow), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.75 });
 }
@@ -812,7 +845,10 @@ function fitCamera() {
   camera.lookAt(LOOK);
   camera.updateProjectionMatrix();
 }
-window.addEventListener('resize', fitCamera);
+window.addEventListener('resize', () => {
+  fitCamera();
+  if (state === 'play' && isTouch() && innerHeight > innerWidth && innerWidth <= 600) pause();
+});
 fitCamera();
 
 // ───────────────────────── Звук ─────────────────────────
@@ -872,7 +908,7 @@ function buildLevel(n) {
   boss = null; tiger = null; amphibious = false; waterCells = [];
   rockets = []; troopers = []; mines = []; wrecks = []; troopTimer = (levelDef(n).troops || 0) * 0.5;
   sinking = []; rising = []; regrow = false; growT = 4; setWaterTrap(false);
-  $('bossBar').style.display = 'none';
+  $('bossBar').style.display = 'none'; document.body.classList.remove('bossOn');
   const map = levelDef(n).map;
   for (let r = 0; r < ROWS; r++) {
     grid[r] = []; cellMesh[r] = [];
@@ -1204,7 +1240,7 @@ function spawnBoss() {
   boss.mesh.position.set(boss.x, 0, boss.z); boss.mesh.rotation.y = -Math.PI;
   dynGroup.add(boss.mesh); enemies.push(boss); spawned++;
   syncTank(boss, 1);
-  $('bossName').textContent = 'Босс: ' + B.name; $('bossFill').style.width = '100%'; $('bossBar').style.display = 'block';
+  $('bossName').textContent = 'Босс: ' + B.name; $('bossFill').style.width = '100%'; $('bossBar').style.display = 'block'; document.body.classList.add('bossOn');
 }
 // Крепыш — залп из всех 15 пушек по кругу раз в 7 секунд; Молот — вызывает бомбардировщик на твой ряд;
 // Гроза — веер снарядов в твою сторону; Титан — щит, под которым чинится; Чёрный барон — всё по очереди.
@@ -1482,9 +1518,9 @@ function killTank(t, drown) {
     list.splice(list.indexOf(t), 1);
     killed++; score += t.kind.score; credit(t.kind.score / 10);
     if (t.boss) {
-      boss = null; $('bossBar').style.display = 'none';
+      boss = null; $('bossBar').style.display = 'none'; document.body.classList.remove('bossOn');
       for (let i = 0; i < 5; i++) explodeTank({ x: t.x + rand(-0.8, 0.8), z: t.z + rand(-0.8, 0.8), debris: t.debris });
-      banner('Босс повержен!', 2200);
+      banner('Босс повержен!', 2200, true);
       for (const k of ['life', 'armor']) dropBonus(t.x + rand(-0.6, 0.6), t.z + rand(-0.6, 0.6), k);
     } else if (Math.random() < (t.kind.hp > 1 ? 0.6 : 0.25) && !solidAt(Math.floor(t.x), Math.floor(t.z))) dropBonus(t.x, t.z);
     if (killed >= curL().total) { state = 'clear'; clearTimer = 1.6; }
@@ -1739,7 +1775,7 @@ function startDuel() {
   placeBases();
   for (const p of players) spawnPlayer(p);
   state = 'play'; last = performance.now();
-  banner('Дуэль!', 1500);
+  banner('Дуэль!', 1500, true);
   $('help').innerHTML = 'Зелёный: W A S D + Пробел &nbsp;•&nbsp; Синий: стрелки + Enter &nbsp;•&nbsp; подбей соперника ' + DUEL_FRAGS + ' раз или разбей его базу с флагом';
 }
 function spawnHelper(team) {
@@ -2003,6 +2039,7 @@ function netSnapshot() {
     hud: ['hLevel', 'hEnemies', 'hP1', 'hP2', 'hScore'].map(id => $(id).textContent),
     boss: $('bossBar').style.display === 'block' ? [$('bossName').textContent, $('bossFill').style.width] : 0,
     rk: players[1] ? players[1].rockets : 0,
+    bf: [buffList(players[0]), buffList(players[1])],
     am: isHard() && players[1] ? [players[1].ammo, Math.round(players[1].reload * 20) / 20] : 0,
     ov: $('overlay').classList.contains('hidden') ? '' : $('ovTitle').textContent });
   net.ev = [];
@@ -2073,7 +2110,8 @@ function netApply(m) {
     if (typeof window[name] === 'function') window[name](...a);
   }
   ['hLevel', 'hEnemies', 'hP1', 'hP2', 'hScore'].forEach((id, i) => { if ($(id).textContent !== m.hud[i]) $(id).textContent = m.hud[i]; });
-  $('bossBar').style.display = m.boss ? 'block' : 'none';
+  $('bossBar').style.display = m.boss ? 'block' : 'none'; document.body.classList.toggle('bossOn', !!m.boss);
+  if (m.bf) { renderBuffs(0, m.bf[0]); renderBuffs(1, m.bf[1]); }
   if (m.boss) { $('bossName').textContent = m.boss[0]; $('bossFill').style.width = m.boss[1]; }
   $('rocketBtn0').style.display = m.rk > 0 ? 'flex' : 'none'; $('rocketBtn1').style.display = 'none';
   $('pauseBtn').style.display = '';
@@ -2205,9 +2243,33 @@ function showOverlay(title, html, buttons, onConfirm) {
 }
 function hideOverlay() { $('overlay').classList.add('hidden'); confirmAction = null; if (document.activeElement) document.activeElement.blur(); }
 let bannerTimer = 0;
-function banner(text, ms) {
-  const b = $('banner'); b.textContent = text; b.classList.add('on');
-  clearTimeout(bannerTimer); bannerTimer = setTimeout(() => b.classList.remove('on'), ms || 1500);
+function banner(text, ms, big) {        // big — крупно посередине; остальное маленькой плашкой сверху
+  const b = $('banner'); b.textContent = text; b.classList.add('on'); b.classList.toggle('small', !big);
+  clearTimeout(bannerTimer); bannerTimer = setTimeout(() => b.classList.remove('on'), big ? ms || 1500 : Math.min(ms || 1500, 1800));
+}
+// Значки подобранных бонусов с секундами (купленное в магазине сюда не попадает)
+const BUFF_ICON = { armor: BONUS.armor.icon, speed: BONUS.speed.icon, twin: BONUS.twin.icon, rocket: BONUS.rocket.icon, freeze: BONUS.freeze.icon };
+BUFF_ICON.swim = (() => { const cv = mkCanvas(64), g = cv.getContext('2d'); g.fillStyle = '#2a6fa8'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#e8f6ff'; g.lineWidth = 6; g.lineCap = 'round';
+  for (const y of [22, 36, 50]) { g.beginPath(); g.moveTo(8, y); for (let x = 8; x <= 56; x += 4) g.lineTo(x, y + Math.sin(x / 5) * 4); g.stroke(); }
+  return cv.toDataURL(); })();
+function buffList(p) {
+  if (!p) return [];
+  const L = [];
+  if (p.armor) L.push(['armor', p.armor > 1 ? '×' + p.armor : '']);
+  if (p.speedT > 0) L.push(['speed', Math.ceil(p.speedT)]);
+  if (p.twin && !up('twin')) L.push(['twin', '']);
+  if (p.rockets) L.push(['rocket', '×' + p.rockets]);
+  if (p.idx === 0 && freezeT > 0) L.push(['freeze', Math.ceil(freezeT)]);
+  if (p.idx === 0 && amphibious) L.push(['swim', '']);
+  return L;
+}
+const buffCache = ['', ''];
+function renderBuffs(i, list) {
+  const key = JSON.stringify(list || []);
+  if (key === buffCache[i]) return;
+  buffCache[i] = key;
+  $('buffs' + i).innerHTML = (list || []).map(([k, v]) => '<div' + (typeof v === 'number' && v <= 3 ? ' class="end"' : '') + '><img src="' + BUFF_ICON[k] + '">' + (typeof v === 'number' ? v + ' с' : v) + '</div>').join('');
 }
 
 function menu() {
@@ -2314,7 +2376,7 @@ function startGame(two) {
 function askDifficulty(then) {
   state = 'ask';
   const pick = hard => () => { save.hard = hard; storeSave(); then(); };
-  showOverlay('Сложность', '<p><b>Лёгкий</b> — стреляй сколько хочешь.</p><p><b>Сложный</b> — в обойме ' + MAG_SIZE + ' снарядов. Когда остаётся ' + RELOAD_AT + ', сама начинается перезарядка (' + RELOAD_TIME + ' секунды), а последние можно ещё выпустить. Зато монет на четверть больше.</p>',
+  showOverlay('Сложность', '<p><b>Лёгкий</b> — стреляй сколько хочешь.</p><p><b>Сложный</b> — в обойме ' + MAG_SIZE + ' снарядов. Когда остаётся ' + RELOAD_AT + ', сама начинается перезарядка (' + RELOAD_TIME + ' секунды), а последние можно ещё выпустить. Зато монет на четверть больше.</p><p class="small">Хочешь ещё сложнее — выбери в главном меню <b>«Ангар»</b>: там враги сильнее, а танк можно выбрать.</p>',
     [{ label: 'Лёгкий', fn: pick(false) }, { label: 'Сложный', cls: 'red', fn: pick(true) }], pick(save.hard));
 }
 function askContinue() {
@@ -2340,7 +2402,7 @@ function startLevel() {
   if (curL().boss) spawnBoss();
   for (const p of players) { p.alive = false; if (p.lives <= 0) p.lives = 1; p.rockets = Math.max(p.rockets, ROCKET_AMMO[up('rocket')]); spawnPlayer(p); }   // выбывший напарник возвращается с одной жизнью
   state = 'play'; last = performance.now();
-  banner(boss ? 'БОСС: ' + boss.kind.name : 'Уровень ' + (level + 1), boss ? 2400 : 1500);
+  banner(boss ? 'БОСС: ' + boss.kind.name : 'Уровень ' + (level + 1), boss ? 2400 : 1500, true);
   $('help').innerHTML = twoPlayers
     ? 'Зелёный: W A S D + Пробел, ракета E &nbsp;•&nbsp; Синий: стрелки + Enter, ракета правый Shift &nbsp;•&nbsp; P — пауза'
     : 'Ехать: стрелки или W A S D (две сразу — наискосок) &nbsp;•&nbsp; Стрелять: Пробел &nbsp;•&nbsp; Ракета: E &nbsp;•&nbsp; P — пауза, M — звук';
@@ -2413,12 +2475,12 @@ function retryLevel() { for (const p of players) { p.lives = 3 + up('life'); p.a
 let hudCache = '';
 function updateHud() {
   if (state === 'net') return;                       // у гостя строку сверху присылает ведущий
-  const hearts = p => (p.lives > 0 ? '❤'.repeat(Math.min(p.lives, 8)) : '—') +
-    (p.armor ? '  🛡' + p.armor : '') + (p.speedT > 0 ? '  ⚡' + Math.ceil(p.speedT) : '') + (p.twin ? '  2 пушки' : '') + (isHard() ? '  ▮' + p.ammo + (p.reload > 0 ? ' ⏳' + Math.ceil(p.reload) : '') : '') + (p.rockets ? '  🚀' + p.rockets : '') + (amphibious ? '  плавает' : '');
+  const hearts = p => p.lives > 0 ? '❤'.repeat(Math.min(p.lives, 8)) : '—';
   const idle = state === 'menu' || state === 'modes' || state === 'ask';
+  for (const i of [0, 1]) renderBuffs(i, idle ? [] : buffList(i === 0 || twoPlayers ? players[i] : null));
   const parts = idle ? ['', '', '', '', ''] : duel ? duelHud() : [
     'Уровень ' + (level + 1) + ' / ' + LEVELS.length,
-    'Врагов: ' + (curL().total - killed) + (freezeT > 0 ? '  ❄' + Math.ceil(freezeT) : ''),
+    'Врагов: ' + (curL().total - killed),
     (twoPlayers ? '🟢 ' : '') + hearts(players[0]),
     twoPlayers ? '🔵 ' + hearts(players[1]) : '',
     'Монеты: ' + save.coins];
