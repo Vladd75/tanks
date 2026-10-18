@@ -771,7 +771,28 @@ const GEO = {
   planeBody: new THREE.CylinderGeometry(0.15, 0.09, 1.7, 10).rotateX(Math.PI / 2),
   fBody: new THREE.CylinderGeometry(0.1, 0.07, 1.5, 12).rotateX(Math.PI / 2),
   fNose: new THREE.ConeGeometry(0.1, 0.24, 12).rotateX(-Math.PI / 2),
-  fWing: new THREE.BoxGeometry(1.5, 0.03, 0.36),
+  ...(() => {                          // крыло истребителя: передняя кромка изогнута назад, как у птицы
+    const P0 = [0.07, -0.3], Cc = [0.5, -0.2], P1 = [0.86, 0.3], T1 = [0.86, 0.42], Ct = [0.42, 0.42], T0 = [0.07, 0.34];
+    const bez = (a, c, b, t) => [(1 - t) * (1 - t) * a[0] + 2 * (1 - t) * t * c[0] + t * t * b[0], (1 - t) * (1 - t) * a[1] + 2 * (1 - t) * t * c[1] + t * t * b[1]];
+    const sh = new THREE.Shape(); sh.moveTo(...P0); sh.quadraticCurveTo(...Cc, ...P1); sh.lineTo(...T1); sh.quadraticCurveTo(...Ct, ...T0); sh.closePath();
+    const wing = new THREE.ExtrudeGeometry(sh, { depth: 0.03, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, 0.015, 0);
+    const edge = (x, A, C, B) => { let best = A[1], bd = 1e9; for (let i = 0; i <= 60; i++) { const q = bez(A, C, B, i / 60); if (Math.abs(q[0] - x) < bd) { bd = Math.abs(q[0] - x); best = q[1]; } } return best; };
+    const stripe = (x0, x1) => {          // красная полоса поперёк крыла
+      const s2 = new THREE.Shape();
+      s2.moveTo(x0, edge(x0, P0, Cc, P1) + 0.01); s2.lineTo(x1, edge(x1, P0, Cc, P1) + 0.01); s2.lineTo(x1, edge(x1, T0, Ct, T1) - 0.01); s2.lineTo(x0, edge(x0, T0, Ct, T1) - 0.01); s2.closePath();
+      return new THREE.ExtrudeGeometry(s2, { depth: 0.036, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, 0.018, 0);
+    };
+    const st = [stripe(0.36, 0.43), stripe(0.52, 0.59)];
+    const mirror = g => {                // зеркалим и разворачиваем треугольники, иначе вторая половина темнеет
+      const m = g.clone().scale(-1, 1, 1);
+      for (const name of ['position', 'normal', 'uv']) {
+        const at = m.attributes[name], n = at.itemSize, arr = at.array;
+        for (let i = 0; i < at.count; i += 3) for (let k = 0; k < n; k++) { const t = arr[(i + 1) * n + k]; arr[(i + 1) * n + k] = arr[(i + 2) * n + k]; arr[(i + 2) * n + k] = t; }
+      }
+      return m;
+    };
+    return { fWingR: wing, fWingL: mirror(wing), fStripeR: st, fStripeL: st.map(mirror) };
+  })(),
   fTail: new THREE.BoxGeometry(0.62, 0.02, 0.16),
   fStripe: new THREE.BoxGeometry(1.52, 0.034, 0.07),
   fRing: new THREE.CylinderGeometry(0.108, 0.108, 0.07, 12).rotateX(Math.PI / 2),
@@ -915,6 +936,17 @@ const SFX = {
   boom: () => { boom(0.6, 0.7, 700); beep(110, 35, 0.4, 'sine', 0.35); },
   pickup: () => { beep(660, 990, 0.12, 'sine', 0.12); setTimeout(() => beep(990, 1480, 0.15, 'sine', 0.12), 110); },
   win: () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, f, 0.2, 'triangle', 0.12), i * 140)),
+  prop: () => {                          // гул пропеллера: низкий тон, «рубленый» лопастями, нарастает и уходит
+    if (muted) return; const a = ac(); if (!a) return;
+    const t = a.currentTime, o = a.createOscillator(), lfo = a.createOscillator(), lg = a.createGain(), g = a.createGain(), f = a.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(95, t); o.frequency.linearRampToValueAtTime(70, t + 3.2);
+    lfo.type = 'square'; lfo.frequency.value = 24; lg.gain.value = 0.05;
+    f.type = 'lowpass'; f.frequency.value = 700;
+    g.gain.setValueAtTime(0.001, t); g.gain.linearRampToValueAtTime(0.09, t + 0.6); g.gain.linearRampToValueAtTime(0.07, t + 2.2); g.gain.linearRampToValueAtTime(0.001, t + 3.2);
+    lfo.connect(lg); lg.connect(g.gain); o.connect(f); f.connect(g); g.connect(a.destination);
+    o.start(t); lfo.start(t); o.stop(t + 3.3); lfo.stop(t + 3.3);
+  },
+  whistle: () => beep(1600, 420, 0.85, 'sine', 0.05),   // свист падающей бомбы
   lose: () => [392, 330, 262, 196].forEach((f, i) => setTimeout(() => beep(f, f * 0.97, 0.28, 'sawtooth', 0.07), i * 200)),
 };
 
@@ -1712,7 +1744,7 @@ function callStrike(p) {
   dynGroup.add(g);
   for (const q of pts) { q.mark = markerMesh(); q.mark.position.set(q.x, 0.05, q.z); q.mark.scale.setScalar(STRIKE_R * 2.2); dynGroup.add(q.mark); }
   strikes.push({ owner: p, x: g.position.x, z: g.position.z, dir, mesh: g, pts, shot: 0, t: 0, flying: [] });
-  banner('Авианалёт!', 1200); beep(150, 95, 1.6, 'sawtooth', 0.06);
+  banner('Авианалёт!', 1200); sfx('prop');
 }
 function strikeAim(q) {                  // цель погибла раньше — ракета переходит на ближайшего живого врага
   if (q.tgt && !q.tgt.alive) {
@@ -1728,32 +1760,35 @@ function updateStrikes(dt) {
     s.t += dt; s.x += s.dir * 9 * dt; s.mesh.position.x = s.x;
     for (const q of s.pts) if (!q.done) strikeAim(q);
     if (s.t > 0.5 && s.shot < s.pts.length && s.t > 0.5 + s.shot * 0.18) {          // пускает ракеты одну за другой
-      const q = s.pts[s.shot], m = rocketMesh();
-      dynGroup.add(m);
+      const q = s.pts[s.shot], m = bombMesh();
+      m.scale.set(0.11, 0.18, 0.11); dynGroup.add(m);
       s.flying.push({ q, x: s.x, y: 2.4, z: s.z, t: 0, mesh: m });
-      s.shot++; beep(300, 900, 0.3, 'sawtooth', 0.04);
+      s.shot++; sfx('whistle');
     }
     for (const r of s.flying) {          // самонаведение: каждый кадр доворачиваем на то место, где цель сейчас
       const q = r.q; r.t += dt;
-      const left = Math.max(0.05, 0.7 - r.t), k = Math.min(1, dt / left);
-      const nx = r.x + (q.x - r.x) * k, ny = r.y + (0 - r.y) * k, nz = r.z + (q.z - r.z) * k;
+      const left = Math.max(0.05, 0.85 - r.t), k = Math.min(1, dt / left), kk = Math.min(1, r.t / 0.85);
+      const nx = r.x + (q.x - r.x) * k, nz = r.z + (q.z - r.z) * k, ny = 2.4 * (1 - kk * kk);   // падает с разгоном, как бомба
       r.mesh.position.set(nx, ny, nz);
-      r.mesh.lookAt(nx + (nx - r.x) + world.position.x, ny + (ny - r.y), nz + (nz - r.z) + world.position.z);
       r.x = nx; r.y = ny; r.z = nz;
-      if (r.t >= 0.7 && !q.done) { q.done = true; dynGroup.remove(r.mesh, q.mark); strikeBlast(q.x, q.z, s.owner); }
+      if (r.t >= 0.85 && !q.done) { q.done = true; dynGroup.remove(r.mesh, q.mark); strikeBlast(q.x, q.z, s.owner, s); }
     }
     s.flying = s.flying.filter(r => !r.q.done);
   }
   strikes = strikes.filter(s => { const out = s.shot >= s.pts.length && !s.flying.length && (s.x < -8 || s.x > COLS + 8); if (out) dynGroup.remove(s.mesh); return !out; });
 }
-function strikeBlast(x, z, owner) {
+function strikeBlast(x, z, owner, s) {
   fireball(x, 0.4, z, 5); scorch(x, z, STRIKE_R * 1.6); debris(x, z, 0x3a2f22, 8, 3);
   shake = Math.max(shake, 0.3); boom(0.6, 0.7, 700);
   const c = Math.floor(x), r = Math.floor(z);
   if (c >= 0 && r >= 0 && c < COLS && r < ROWS && grid[r][c] === BRICK) breakBrick(c, r);
   lastShooter = owner;
-  for (const e of enemies.concat(helis).slice()) if (e.alive && Math.hypot(e.x - x, e.z - z) < STRIKE_R + (e.half || HALF) * 0.5) hitTank(e, 3);
-  if (tiger && tiger.up && Math.hypot(tiger.x - x, tiger.z - z) < STRIKE_R) hitTiger(3);
+  // обычные танки и вертолёты — сразу насмерть, боссу — четверть всех жизней за весь налёт (а не за каждую бомбу)
+  for (const e of enemies.concat(helis).slice()) if (e.alive && Math.hypot(e.x - x, e.z - z) < STRIKE_R + (e.half || HALF) * 0.5) {
+    if (e.boss) { if (s.bossHit) continue; s.bossHit = true; }
+    hitTank(e, e.boss ? e.maxHp * 0.25 : e.hp + 1);
+  }
+  if (tiger && tiger.up && Math.hypot(tiger.x - x, tiger.z - z) < STRIKE_R) hitTiger(tiger.hp + 1);
   for (const m of mines) if (!m.dead && Math.hypot(m.x - x, m.z - z) < STRIKE_R) blowMine(m);
   lastShooter = null;
 }
@@ -2083,10 +2118,11 @@ function planeMesh(troops) {
 function fighterMesh() {                 // свой самолёт для авианалёта — голубой истребитель с двумя красными полосами
   const g = new THREE.Group(), add = (geo, mat, x, y, zz) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, zz); o.castShadow = true; g.add(o); return o; };
   add(GEO.fBody, MAT.fighter, 0, 0, 0); add(GEO.fNose, MAT.fighter, 0, 0, -0.86);
-  add(GEO.fWing, MAT.fighter, 0, 0, 0.05); add(GEO.fTail, MAT.fighter, 0, 0.02, 0.66);
+  add(GEO.fWingR, MAT.fighter, 0, 0, 0); add(GEO.fWingL, MAT.fighter, 0, 0, 0); add(GEO.fTail, MAT.fighter, 0, 0.02, 0.66);
   add(GEO.fin, MAT.fighter, 0, 0.14, 0.68).scale.set(1.5, 1.6, 2.2);
   add(GEO.ball, MAT.glass, 0, 0.1, -0.35).scale.set(0.08, 0.07, 0.18);              // кабина
-  for (const zz of [-0.06, 0.16]) { add(GEO.fStripe, MAT.fighterRed, 0, 0.02, zz); add(GEO.fRing, MAT.fighterRed, 0, 0, zz); }
+  for (const gs of GEO.fStripeR.concat(GEO.fStripeL)) add(gs, MAT.fighterRed, 0, 0, 0);
+  for (const zz of [0.0, 0.16]) add(GEO.fRing, MAT.fighterRed, 0, 0, zz);
   g.scale.setScalar(1.6);
   g.userData.rec = ['fighter'];
   return g;
