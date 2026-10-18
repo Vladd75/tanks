@@ -429,7 +429,7 @@ const AUTHOR_HASH = 2216113515;
 const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h; };
 const saveKey = () => (gameMode === 'hangar' ? SAVE_KEY + '_hangar' : SAVE_KEY) + (author ? '_author' : '');
 function loadSave() {
-  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, heavy: 0 };
+  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, medium: 0, heavy: 0 };
   for (const u of SHOP) save.up[u.key] = 0;
   try {
     const d = JSON.parse(localStorage.getItem(saveKey()) || 'null');
