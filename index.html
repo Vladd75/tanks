@@ -128,6 +128,13 @@
   .rocketBtn { position: fixed; right: 54px; bottom: 188px; width: 92px; height: 92px; border-radius: 50%; display: none;
     background: rgba(60, 90, 150, .8); border: 4px solid rgba(255,255,255,.75); box-sizing: border-box;
     color: #fff; font-size: 15px; font-weight: 800; align-items: center; justify-content: center; text-align: center; touch-action: none; }
+  .abilBtn { position: fixed; right: 182px; bottom: 140px; width: 84px; height: 84px; border-radius: 50%; display: none;
+    background: rgba(70, 130, 60, .82); border: 4px solid rgba(255,255,255,.75); box-sizing: border-box; line-height: 1.1;
+    color: #fff; font-size: 13px; font-weight: 800; align-items: center; justify-content: center; text-align: center; touch-action: none; }
+  .abilBtn.wait { background: rgba(70, 70, 70, .7); color: rgba(255,255,255,.8); font-size: 22px; }
+  body.two .abilBtn { width: 72px; height: 72px; font-size: 12px; bottom: 240px; }
+  body.two #abilBtn0 { right: auto; left: calc(33% + 17px); }
+  body.two #abilBtn1 { right: 39px; }
   body.two .rocketBtn { width: 80px; height: 80px; font-size: 13px; bottom: 150px; }
   body.two #rocketBtn0 { right: auto; left: calc(33% + 13px); }
   body.two #rocketBtn1 { right: 35px; }
@@ -162,6 +169,8 @@
   <div id="fireBtn1" class="fireBtn">ОГОНЬ</div>
   <div id="rocketBtn0" class="rocketBtn">РАКЕТА</div>
   <div id="rocketBtn1" class="rocketBtn">РАКЕТА</div>
+  <div id="abilBtn0" class="abilBtn"></div>
+  <div id="abilBtn1" class="abilBtn"></div>
 </div>
 <div id="overlay"><div class="card"><h1 id="ovTitle">Танчики 3D</h1><div id="ovText"><p>Загрузка…</p></div><div id="ovButtons"></div></div></div>
 
@@ -415,7 +424,7 @@ for (const u of SHOP) save.up[u.key] = 0;
 let gameMode = 'classic';
 const saveKey = () => gameMode === 'hangar' ? SAVE_KEY + '_hangar' : SAVE_KEY;
 function loadSave() {
-  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false };
+  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, heavy: 0 };
   for (const u of SHOP) save.up[u.key] = 0;
   try {
     const d = JSON.parse(localStorage.getItem(saveKey()) || 'null');
@@ -425,6 +434,7 @@ function loadSave() {
       save.tokens = Math.max(0, d.tokens | 0);
       if (d.owned) for (const k in save.owned) save.owned[k] = k === 'medium' || !!d.owned[k];
       if (TANKS[d.tank] && save.owned[d.tank]) save.tank = d.tank;
+      if (d.stars) for (const k in save.stars) save.stars[k] = Math.max(0, Math.min(3, d.stars[k] | 0));
     } else if (gameMode === 'classic') save.level = Math.max(0, Math.min(LEVELS.length - 1, parseInt(localStorage.getItem('tanks3d_level')) || 0));   // от прошлой версии
   } catch (e) {}
 }
@@ -435,7 +445,7 @@ function earn(n) { if (duel) return 0; const v = Math.round(n * (1 + 0.25 * up('
 let lastShooter = null;                  // чей снаряд сейчас попал — чтобы монеты второго игрока по сети уходили ему
 function credit(n) {
   const v = earn(n);
-  if (v && net.role === 'host' && net.peer && lastShooter && lastShooter === players[1]) { save.coins -= v; levelCoins -= v; net.guestCoins += v; }
+  if (v && net.role === 'host' && net.peer && lastShooter && (lastShooter.ally ? lastShooter.owner : lastShooter) === players[1]) { save.coins -= v; levelCoins -= v; net.guestCoins += v; }
 }
 // Танки ангара. hp — сколько попаданий выдерживает, speed и dmg — от среднего; cost — цена в токенах
 const TANKS = {
@@ -444,7 +454,20 @@ const TANKS = {
   heavy:  { name: 'Тяжёлый', proto: 'ИС-7', look: 'is7', hp: 3, speed: 0.7,  dmg: 1.5, cost: 250 },
 };
 const TOKEN_PRICE = 40;                  // монет за один токен
-const tankStat = (p, key) => gameMode === 'hangar' && TANKS[p.tank] ? TANKS[p.tank][key] : 1;
+// Звёзды — улучшения танка в ангаре за токены (идея Коли, 18.10.2026). Третья звезда — способность на кнопку.
+const STARS = {
+  light: { costs: [44, 66, 110], desc: ['выдерживает на одно попадание больше', 'бомбы, мины и босс бьют вдвое слабее', 'помощники: 2 маленьких танка воюют 10 секунд, снова — через 30 секунд'] },
+  heavy: { costs: [66, 99, 165], desc: ['скорость +10 %', 'скорость ещё +20 %', 'авианалёт: свой самолёт бьёт 5 ракетами по врагам, раз за уровень'] },
+};
+const starsOf = p => !p || duel || gameMode !== 'hangar' ? 0 : p.stars | 0;
+const tankStat = (p, key) => {
+  if (gameMode !== 'hangar' || !TANKS[p.tank]) return 1;
+  let v = TANKS[p.tank][key];
+  const st = starsOf(p);
+  if (key === 'hp' && p.tank === 'light' && st >= 1) v += 1;
+  if (key === 'speed' && p.tank === 'heavy') v *= st >= 2 ? 1.3 : st >= 1 ? 1.1 : 1;
+  return v;
+};
 const playerDmg = p => gameMode === 'hangar' ? tankStat(p, 'dmg') + 0.25 * up('gun') : 1 + up('gun');   // в ангаре «Мощная пушка» даёт +0,25
 
 // ───────────────────────── Дуэль: друг против друга ─────────────────────────
@@ -891,7 +914,7 @@ let grid = [], cellMesh = [];
 let players = [], enemies = [], helis = [], bombs = [], planes = [], bullets = [], particles = [], fx = [], pickups = [], scorches = [];
 let spawned = 0, killed = 0, spawnTimer = 0, clearTimer = 0, shake = 0, time = 0, freezeT = 0, planeTimer = 0;
 let boss = null, tiger = null, tigerTimer = 0, tigerDone = true, amphibious = false, waterCells = [];
-let rockets = [], troopers = [], mines = [], wrecks = [], troopTimer = 0;
+let rockets = [], troopers = [], mines = [], wrecks = [], troopTimer = 0, allies = [], strikes = [];
 let waterTrap = false, sinking = [], origGrid = [], brickTotal = 0, regrow = false, growT = 0, rising = [];
 
 function clearGroup(g) { while (g.children.length) g.remove(g.children[0]); }
@@ -906,7 +929,7 @@ function buildLevel(n) {
   const reserved = new Set(ENEMY_SPAWNS.concat(PLAYER_SPAWNS).map(([c, r]) => c + ',' + r));
   if (levelDef(n).boss) for (let c = 6; c <= 8; c++) for (let r = 0; r <= 2; r++) reserved.add(c + ',' + r);     // место, где стоит босс
   boss = null; tiger = null; amphibious = false; waterCells = [];
-  rockets = []; troopers = []; mines = []; wrecks = []; troopTimer = (levelDef(n).troops || 0) * 0.5;
+  rockets = []; troopers = []; mines = []; wrecks = []; allies = []; strikes = []; troopTimer = (levelDef(n).troops || 0) * 0.5;
   sinking = []; rising = []; regrow = false; growT = 4; setWaterTrap(false);
   $('bossBar').style.display = 'none'; document.body.classList.remove('bossOn');
   const map = levelDef(n).map;
@@ -1096,7 +1119,7 @@ function boxBlocked(x, z, self) {
   const c0 = Math.floor(x - hf), c1 = Math.floor(x + hf - 1e-6);
   const r0 = Math.floor(z - hf), r1 = Math.floor(z + hf - 1e-6);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const g = grid[r][c]; if (g !== EMPTY && !(wade && g === WATER)) return true; }
-  for (const list of [players, enemies]) for (const o of list) {
+  for (const list of [players, enemies, allies]) for (const o of list) {
     if (o === self || !o.alive) continue;
     const nd = Math.max(Math.abs(x - o.x), Math.abs(z - o.z));
     // мешает только если мы к нему приближаемся — иначе сцепившиеся танки не разъедутся
@@ -1193,7 +1216,9 @@ function fire(t) {
 }
 
 function newPlayer(idx) {
-  return { idx, tank: gameMode !== 'hangar' ? 'medium' : idx === 0 ? (sessionTank || save.tank) : (net.role === 'host' && net.guestTank) || 'medium', team: duel ? idx : 0, isEnemy: false, lives: 3 + up('life'), alive: false, respawn: 0, x: 0, z: 0, dir: 0, speed: PLAYER_SPEED, hp: 1, cool: 0, shield: 0, born: 0, armor: 0, twin: false, speedT: 0, rockets: 0, ammo: MAG_SIZE, reload: 0, scale: 1, recoil: 0, fxT: 0, debris: PLAYER_CAMO[idx][0], mesh: null };
+  const tank = gameMode !== 'hangar' ? 'medium' : idx === 0 ? (sessionTank || save.tank) : (net.role === 'host' && net.guestTank) || 'medium';
+  const stars = gameMode !== 'hangar' ? 0 : idx === 0 ? (sessionTank ? sessionStars : save.stars[tank] | 0) : net.role === 'host' ? net.guestStars | 0 : 0;
+  return { idx, tank, stars, abilCd: 0, allyT: 0, strikeUsed: false, team: duel ? idx : 0, isEnemy: false, lives: 3 + up('life'), alive: false, respawn: 0, x: 0, z: 0, dir: 0, speed: PLAYER_SPEED, hp: 1, cool: 0, shield: 0, born: 0, armor: 0, twin: false, speedT: 0, rockets: 0, ammo: MAG_SIZE, reload: 0, scale: 1, recoil: 0, fxT: 0, debris: PLAYER_CAMO[idx][0], mesh: null };
 }
 function spawnPlayer(p) {
   const [c, r] = (duel ? DUEL_SPAWNS : PLAYER_SPAWNS)[p.idx];
@@ -1427,7 +1452,7 @@ function blast(b) {
   for (let i = 0; i < 5; i++) puff(TEX.smoke, wet ? 0xe8f4ff : 0x2a2a2a, x + rand(-0.25, 0.25), rand(0.3, 0.6), z + rand(-0.25, 0.25), rand(-0.3, 0.3), rand(0.6, 1.3), rand(-0.3, 0.3), rand(0.8, 1.5), 0.35, rand(0.9, 1.4), 0.65, false);
   if (!wet) { scorch(x, z, 1.1); debris(x, z, 0x3a2f22, 6, 2.2); }
   lightFlash(x, z, 5); shake = Math.max(shake, 0.18); boom(0.4, 0.5, 800);
-  for (const t of (b.all ? players.concat(enemies) : players)) if (t.alive && Math.abs(t.x - x) < 0.62 && Math.abs(t.z - z) < 0.62) hitTank(t);
+  for (const t of (b.all ? players.concat(enemies) : players)) if (t.alive && Math.abs(t.x - x) < 0.62 && Math.abs(t.z - z) < 0.62) hitTank(t, 1, true);
 }
 // бомбардировщик: пролетает над одним рядом и роняет бомбы; сбить нельзя, достаётся всем, кто под ним
 function launchPlane(cargo) {
@@ -1533,14 +1558,15 @@ function killTank(t, drown) {
     if (players.every(p => !p.alive && p.lives <= 0)) { state = 'clear'; clearTimer = 1.6; }
   }
 }
-function hitTank(t, dmg) {
+function hitTank(t, dmg, heavyHit) {   // heavyHit — бомба, мина или снаряд босса
   if (t.shield > 0 || t.born > 0.2) { SFX.clang(); return; }
+  if (t.ally) { killAlly(t); return; }
   if (!t.isEnemy && amphibious && cellAt(t.x, t.z) === WATER) { splash(t.x, t.z); return; }     // под водой не достать
   if (!t.isEnemy && t.armor > 0) {                                  // броня принимает удар на себя и слетает
     t.armor--; showLoadout(t); sparks(t.x, t.z); debris(t.x, t.z, 0x8494a6, 5, 2);
     return;
   }
-  t.hp -= dmg || 1;
+  t.hp -= (dmg || 1) * (heavyHit && !t.isEnemy && t.tank === 'light' && starsOf(t) >= 2 ? 0.5 : 1);
   if (t.boss) $('bossFill').style.width = Math.max(0, 100 * t.hp / t.maxHp) + '%';
   if (t.hp <= 0) { killTank(t); return; }
   if (!t.isEnemy) t.shield = Math.max(t.shield, 0.7);              // после попадания — короткая передышка
@@ -1593,6 +1619,120 @@ function launchRocket(p) {
   dynGroup.add(mesh);
   rockets.push({ owner: p, x: p.x, y: 0.6, z: p.z, vx: (p.hx || 0) * 2, vy: 5, vz: (p.hz || 0) * 2, tgt, life: 6, dmg: 2 + playerDmg(p), fxT: 0, mesh });
   boom(0.3, 0.35, 2600); beep(300, 900, 0.4, 'sawtooth', 0.04);
+}
+// ───────────────────────── Способности третьей звезды ─────────────────────────
+// Лёгкий: два маленьких помощника на ALLY_TIME секунд, потом перезарядка ALLY_CD. Тяжёлый: авианалёт раз за уровень.
+const ALLY_TIME = 10, ALLY_CD = 30, STRIKE_ROCKETS = 5, STRIKE_R = 1.4;
+const abilityOf = p => starsOf(p) >= 3 ? (p.tank === 'light' ? 'allies' : p.tank === 'heavy' ? 'strike' : '') : '';
+function useAbility(p) {
+  if (net.role === 'guest') { netSend({ t: 'a' }); return; }
+  if (state !== 'play' || !p || !p.alive) return;
+  const a = abilityOf(p);
+  if (a === 'allies' && p.abilCd <= 0 && !allies.some(o => o.owner === p)) callAllies(p);
+  else if (a === 'strike' && !p.strikeUsed) callStrike(p);
+  else beep(220, 160, 0.15, 'square', 0.05);
+}
+function callAllies(p) {
+  let made = 0;
+  for (const side of [-1, 1]) {
+    const ox = -p.hz * side * 0.9, oz = p.hx * side * 0.9;       // слева и справа от танка
+    let x = p.x + ox, z = p.z + oz;
+    const al = { ally: true, owner: p, isEnemy: false, team: p.team, tank: 'light', idx: p.idx, alive: true, x, z, dir: p.dir, wantDir: p.dir, speed: PLAYER_SPEED * 1.2,
+      hp: 1, maxHp: 1, half: 0.26, shield: 0, born: 0.4, scale: 0.6, recoil: 0, fxT: 0.3, armor: 0, twin: false, speedT: 0, aiTimer: 0, fireTimer: 0.3, stuck: 0,
+      debris: PLAYER_CAMO[p.idx][0], mesh: null };
+    if (boxBlocked(x, z, al)) { const c = nearestEmpty(x, z); if (!c) continue; al.x = c[0] + 0.5; al.z = c[1] + 0.5; if (boxBlocked(al.x, al.z, al)) continue; }
+    al.mesh = makeTankMesh(PLAYER_CAMO[p.idx], 0.6, 't26');
+    al.mesh.position.set(al.x, 0, al.z); dynGroup.add(al.mesh); allies.push(al); syncTank(al, 1);
+    puff(TEX.glow, 0x9cff70, al.x, 0.4, al.z, 0, 0.3, 0, 0.5, 0.3, 1.2, 0.8, true);
+    made++;
+  }
+  if (!made) { beep(220, 160, 0.15, 'square', 0.05); return; }
+  p.allyT = ALLY_TIME; banner('Помощники в бой!', 1100); beep(400, 800, 0.25, 'square', 0.05);
+}
+function killAlly(al) {
+  if (!al.alive) return;
+  al.alive = false; dynGroup.remove(al.mesh); explodeTank(al);
+}
+function updateAllies(dt) {
+  for (const p of players) {
+    if (p.allyT > 0) { p.allyT -= dt; if (p.allyT <= 0) for (const al of allies) if (al.owner === p && al.alive) { al.alive = false; dynGroup.remove(al.mesh); puff(TEX.smoke, 0xdddddd, al.x, 0.3, al.z, 0, 0.6, 0, 0.7, 0.3, 1, 0.7, false); } }
+    if (p.abilCd > 0) p.abilCd -= dt;
+  }
+  for (const al of allies) {
+    if (!al.alive) continue;
+    let tgt = null, best = 1e9;                                      // ближайший враг
+    for (const e of enemies) if (e.alive) { const d = Math.abs(e.x - al.x) + Math.abs(e.z - al.z); if (d < best) { best = d; tgt = e; } }
+    al.fireTimer -= dt; al.cool = (al.cool || 0) - dt;
+    if (tgt) {
+      const dx = tgt.x - al.x, dz = tgt.z - al.z, hw = (tgt.half || HALF) * 0.8;
+      if (Math.abs(dx) < hw || Math.abs(dz) < hw) {                 // враг на одной линии — разворачиваемся и стреляем
+        const d = Math.abs(dx) < hw ? (dz > 0 ? 2 : 0) : (dx > 0 ? 1 : 3);
+        al.dir = d; al.hx = DX[d]; al.hz = DZ[d];
+        if (al.fireTimer <= 0 && bulletsOf(al) < 1) { fire(al); al.fireTimer = 0.55; }
+        if (best > 3) moveTank(al, d, dt);
+        continue;
+      }
+      al.aiTimer -= dt;
+      if (al.aiTimer <= 0) { al.aiTimer = rand(0.4, 0.9); al.wantDir = Math.abs(dx) < Math.abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 2 : 0); }  // выходим на линию огня
+    }
+    if (moveTank(al, al.wantDir, dt)) al.stuck = 0;
+    else { al.stuck += dt; if (al.stuck > 0.3) { al.wantDir = randInt(4); al.stuck = 0; al.aiTimer = 0.6; } }
+    if (al.fireTimer <= 0 && bulletsOf(al) < 1 && Math.random() < 0.02) { fire(al); al.fireTimer = 0.8; }   // ломает стены по пути
+  }
+  allies = allies.filter(al => al.alive);
+  for (const p of players) if (abilityOf(p) === 'allies' && p.allyT > 0 && !allies.some(o => o.owner === p)) { p.allyT = 0; }
+  for (const p of players) if (abilityOf(p) === 'allies' && p.allyT <= 0 && p.wasAllies) { p.abilCd = ALLY_CD; }
+  for (const p of players) p.wasAllies = p.allyT > 0;
+}
+function callStrike(p) {
+  p.strikeUsed = true;
+  const pts = [], foes = enemies.filter(e => e.alive && !e.ally).concat(helis);
+  foes.sort((a, b) => (b.boss ? 9 : b.hp) - (a.boss ? 9 : a.hp));
+  for (const e of foes) if (pts.length < STRIKE_ROCKETS && !pts.some(q => Math.hypot(q[0] - e.x, q[1] - e.z) < STRIKE_R)) pts.push([e.x, e.z]);
+  while (pts.length < STRIKE_ROCKETS) pts.push([rand(1.5, COLS - 1.5), rand(1, ROWS - 4)]);   // остальные — по верхней части поля, к врагам
+  const dir = Math.random() < 0.5 ? 1 : -1, g = planeMesh(false);
+  g.rotation.y = -dir * Math.PI / 2; g.position.set(dir > 0 ? -6 : COLS + 6, 2.6, ROWS / 2 - 1);
+  dynGroup.add(g);
+  const marks = pts.map(([x, z]) => { const m = markerMesh(); m.position.set(x, 0.05, z); m.scale.setScalar(STRIKE_R * 2.2); dynGroup.add(m); return m; });
+  strikes.push({ owner: p, x: g.position.x, z: g.position.z, dir, mesh: g, pts, marks, shot: 0, t: 0, flying: [] });
+  banner('Авианалёт!', 1200); beep(150, 95, 1.6, 'sawtooth', 0.06);
+}
+function updateStrikes(dt) {
+  for (const s of strikes) {
+    s.t += dt; s.x += s.dir * 9 * dt; s.mesh.position.x = s.x;
+    if (s.t > 0.5 && s.shot < s.pts.length && s.t > 0.5 + s.shot * 0.18) {          // пускает ракеты одну за другой
+      const [x, z] = s.pts[s.shot], m = rocketMesh();
+      dynGroup.add(m);
+      s.flying.push({ x0: s.x, z0: s.z, x, z, t: 0, mesh: m, mark: s.marks[s.shot] });
+      s.shot++; beep(300, 900, 0.3, 'sawtooth', 0.04);
+    }
+    for (const r of s.flying) {
+      r.t += dt / 0.7;
+      const k = Math.min(1, r.t), px = r.x0 + (r.x - r.x0) * k, pz = r.z0 + (r.z - r.z0) * k, py = 2.6 * (1 - k * k);
+      r.mesh.position.set(px, py, pz);
+      r.mesh.lookAt(r.x + world.position.x, 0, r.z + world.position.z);
+      if (k >= 1 && !r.done) { r.done = true; dynGroup.remove(r.mesh, r.mark); strikeBlast(r.x, r.z, s.owner); }
+    }
+    s.flying = s.flying.filter(r => !r.done);
+  }
+  strikes = strikes.filter(s => { const out = s.shot >= s.pts.length && !s.flying.length && (s.x < -8 || s.x > COLS + 8); if (out) dynGroup.remove(s.mesh); return !out; });
+}
+function strikeBlast(x, z, owner) {
+  fireball(x, 0.4, z, 5); scorch(x, z, STRIKE_R * 1.6); debris(x, z, 0x3a2f22, 8, 3);
+  shake = Math.max(shake, 0.3); boom(0.6, 0.7, 700);
+  const c = Math.floor(x), r = Math.floor(z);
+  if (c >= 0 && r >= 0 && c < COLS && r < ROWS && grid[r][c] === BRICK) breakBrick(c, r);
+  lastShooter = owner;
+  for (const e of enemies.concat(helis).slice()) if (e.alive && Math.hypot(e.x - x, e.z - z) < STRIKE_R + (e.half || HALF) * 0.5) hitTank(e, 3);
+  if (tiger && tiger.up && Math.hypot(tiger.x - x, tiger.z - z) < STRIKE_R) hitTiger(3);
+  for (const m of mines) if (!m.dead && Math.hypot(m.x - x, m.z - z) < STRIKE_R) blowMine(m);
+  lastShooter = null;
+}
+function abilityState(p) {         // для кнопки и значка: [вид, секунды или 0 — готово, -1 — уже потрачено]
+  const a = abilityOf(p);
+  if (!a) return null;
+  if (a === 'strike') return ['strike', p.strikeUsed ? -1 : 0];
+  return ['allies', p.allyT > 0 ? -2 : Math.max(0, Math.ceil(p.abilCd))];
 }
 function fireball(x, y, z, n) {
   puff(TEX.glow, 0xfff2c0, x, y, z, 0, 0, 0, 0.2, 0.4, 1.9, 1, true);
@@ -1699,7 +1839,7 @@ function blowMine(m, victim) {
   m.dead = true;
   fireball(m.x, 0.3, m.z, 3); scorch(m.x, m.z, 0.9); debris(m.x, m.z, 0x3a2f22, 5, 2);
   shake = Math.max(shake, 0.15); boom(0.35, 0.5, 900);
-  if (victim) hitTank(victim, victim.isEnemy ? 3 : 1);
+  if (victim) hitTank(victim, victim.isEnemy ? 3 : 1, true);
 }
 function countBricks() { let n = 0; for (const row of grid) for (const v of row) if (v === BRICK) n++; return n; }
 function growBrick(c, r) {             // новая стена поднимается из земли
@@ -1802,7 +1942,7 @@ function hitBase(c, r, b) {
   if (duelWinner < 0) { duelWinner = 1 - base.team; state = 'clear'; clearTimer = 1.8; }
 }
 function foesOf(e) {             // на кого охотится танк под управлением компьютера
-  if (!duel) return players.filter(p => p.alive);
+  if (!duel) return players.concat(allies).filter(p => p.alive);
   const list = players.concat(enemies).filter(o => o.alive && o.team !== e.team), b = bases[1 - e.team];
   if (b && b.alive) list.push(b);
   return list;
@@ -1902,10 +2042,11 @@ const relayUrl = () => AT_HOME_SERVER ? 'ws://' + location.host + '/ws' : NET_RE
 // и там сама продолжает: создаёт игру или подключается по тому же коду, на том же танке.
 const HOME_URL = 'http://192.168.1.76:8810/';
 function goHome(role, code) {
-  location.href = HOME_URL + '#net=' + role + (code ? '&code=' + code : '') + '&mode=' + gameMode + (gameMode === 'hangar' ? '&tank=' + (sessionTank || save.tank) : '');
+  location.href = HOME_URL + '#net=' + role + (code ? '&code=' + code : '') + '&mode=' + gameMode + (gameMode === 'hangar' ? '&tank=' + (sessionTank || save.tank) + '&stars=' + (sessionTank ? sessionStars : save.stars[save.tank] | 0) : '');
 }
 const handoff = {};                 // что передали в адресе при переходе домой
 try { location.hash.replace(/^#/, '').split('&').forEach(kv => { const [k, v] = kv.split('='); if (k) handoff[k] = decodeURIComponent(v || ''); }); } catch (e) {}
+let sessionStars = 0;
 let sessionTank = '';               // танк, на котором пришли с другого адреса (у домашнего адреса свой ангар)
 const net = { ws: null, role: '', code: '', peer: false, lobby: false, guestCoins: 0, guestTank: '', seq: 0, known: new Set(), recs: {}, objs: new Map(), ev: [], last: 0, lastIn: '', lastInT: 0, levelDirty: false, ovTitle: '' };
 const localP = i => twoPlayers && net.role !== 'host' ? i : 0;      // каким танком управляет местная клавиша/кнопка
@@ -1972,7 +2113,7 @@ function netMessage(m) {
   if (m.t === 'role') {
     net.role = m.role; net.code = m.code || '';
     if (m.role === 'host') { net.peer = !!m.guest; netLobby(); }
-    else { netSend({ t: 'tank', tank: gameMode === 'hangar' ? (sessionTank || save.tank) : 'medium' }); showOverlay('По сети', '<p>Подключено. Ждём, пока ведущий начнёт игру…</p>', [{ label: 'Выйти', cls: 'gray', fn: menu }]); }
+    else { netSend({ t: 'tank', tank: gameMode === 'hangar' ? (sessionTank || save.tank) : 'medium', stars: gameMode === 'hangar' ? (sessionTank ? sessionStars : save.stars[save.tank] | 0) : 0 }); showOverlay('По сети', '<p>Подключено. Ждём, пока ведущий начнёт игру…</p>', [{ label: 'Выйти', cls: 'gray', fn: menu }]); }
   } else if (m.t === 'nohost') {
     netClose(); netJoinAsk('Комнаты с таким кодом нет. Проверь код — или пусть ведущий нажмёт «Создать игру».');
   } else if (m.t === 'full') {
@@ -1989,7 +2130,8 @@ function netMessage(m) {
   } else if (net.role === 'host') {
     if (m.t === 'i') { held[1].length = 0; if (m.v) held[1].push({ code: 'net', vx: +m.v[0], vz: +m.v[1] }); fireHeld[1] = !!m.f; }
     else if (m.t === 'r') launchRocket(players[1]);
-    else if (m.t === 'tank') { net.guestTank = TANKS[m.tank] ? m.tank : 'medium'; if (gameMode === 'hangar' && players[1]) players[1].tank = net.guestTank; }
+    else if (m.t === 'a') useAbility(players[1]);
+    else if (m.t === 'tank') { net.guestTank = TANKS[m.tank] ? m.tank : 'medium'; net.guestStars = Math.max(0, Math.min(3, m.stars | 0)); if (gameMode === 'hangar' && players[1]) { players[1].tank = net.guestTank; players[1].stars = net.guestStars; } }
   } else if (net.role === 'guest') {
     if (m.t === 'level') netLevel(m); else if (m.t === 's') netApply(m); else if (m.t === 'coins') addCoinsTo(m.mode, m.n);
   }
@@ -2040,6 +2182,7 @@ function netSnapshot() {
     boss: $('bossBar').style.display === 'block' ? [$('bossName').textContent, $('bossFill').style.width] : 0,
     rk: players[1] ? players[1].rockets : 0,
     bf: [buffList(players[0]), buffList(players[1])],
+    ab: players[1] ? abilityState(players[1]) : null,
     am: isHard() && players[1] ? [players[1].ammo, Math.round(players[1].reload * 20) / 20] : 0,
     ov: $('overlay').classList.contains('hidden') ? '' : $('ovTitle').textContent });
   net.ev = [];
@@ -2112,6 +2255,7 @@ function netApply(m) {
   ['hLevel', 'hEnemies', 'hP1', 'hP2', 'hScore'].forEach((id, i) => { if ($(id).textContent !== m.hud[i]) $(id).textContent = m.hud[i]; });
   $('bossBar').style.display = m.boss ? 'block' : 'none'; document.body.classList.toggle('bossOn', !!m.boss);
   if (m.bf) { renderBuffs(0, m.bf[0]); renderBuffs(1, m.bf[1]); }
+  abilButton(0, m.ab || null); abilButton(1, null);
   if (m.boss) { $('bossName').textContent = m.boss[0]; $('bossFill').style.width = m.boss[1]; }
   $('rocketBtn0').style.display = m.rk > 0 ? 'flex' : 'none'; $('rocketBtn1').style.display = 'none';
   $('pauseBtn').style.display = '';
@@ -2139,6 +2283,7 @@ function netGuestFrame(dt) {
 const KEY_DIR = { KeyW: [0, 0], KeyD: [0, 1], KeyS: [0, 2], KeyA: [0, 3], ArrowUp: [1, 0], ArrowRight: [1, 1], ArrowDown: [1, 2], ArrowLeft: [1, 3] };
 const KEY_FIRE = { Space: 0, Enter: 1, NumpadEnter: 1, ControlRight: 1, Numpad0: 1 };
 const KEY_ROCKET = { KeyE: 0, KeyR: 0, ShiftLeft: 0, ShiftRight: 1, KeyL: 1 };
+const KEY_ABIL = { KeyQ: 0, Slash: 1, Numpad1: 1 };
 const held = [[], []], fireHeld = [false, false];
 let confirmAction = null;      // что делает Enter/Пробел на экране с кнопками
 
@@ -2155,6 +2300,7 @@ window.addEventListener('keydown', e => {
     if (kd) { const st = held[localP(kd[0])]; if (!st.some(k => k.code === e.code)) st.push({ code: e.code, dir: kd[1] }); }
     if (kf !== undefined) fireHeld[localP(kf)] = true;
     if (KEY_ROCKET[e.code] !== undefined) launchRocket(players[localP(KEY_ROCKET[e.code])]);
+    if (KEY_ABIL[e.code] !== undefined) useAbility(players[localP(KEY_ABIL[e.code])]);
     return;
   }
   if (state === 'pause' && (e.code === 'KeyP' || e.code === 'Escape')) { resume(); return; }
@@ -2218,6 +2364,7 @@ function makeTouchPad(idx) {
 }
 const touchPads = [makeTouchPad(0), makeTouchPad(1)];
 for (const i of [0, 1]) $('rocketBtn' + i).addEventListener('pointerdown', e => { e.preventDefault(); ac(); launchRocket(players[localP(i)]); });
+for (const i of [0, 1]) $('abilBtn' + i).addEventListener('pointerdown', e => { e.preventDefault(); ac(); useAbility(players[localP(i)]); });
 function touchReset() { for (const t of touchPads) t.reset(); }
 $('pauseBtn').addEventListener('click', () => { if (state === 'play') pause(); else if (state === 'pause') resume(); else if (state === 'net') menu(); });
 window.addEventListener('contextmenu', e => e.preventDefault());
@@ -2262,14 +2409,22 @@ function buffList(p) {
   if (p.rockets) L.push(['rocket', '×' + p.rockets]);
   if (p.idx === 0 && freezeT > 0) L.push(['freeze', Math.ceil(freezeT)]);
   if (p.idx === 0 && amphibious) L.push(['swim', '']);
+  const ab = abilityState(p);
+  if (ab) L.push([ab[0], ab[1] > 0 ? ab[1] : ab[1] === 0 ? 'готово' : ab[1] === -2 ? 'в бою' : '—']);
   return L;
 }
+BUFF_ICON.allies = (() => { const cv = mkCanvas(64), g = cv.getContext('2d'); g.fillStyle = '#3c6a2a'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#d8f0b0'; for (const x of [8, 36]) { g.fillRect(x, 26, 20, 22); g.fillRect(x + 5, 18, 10, 10); g.fillRect(x + 8, 6, 4, 14); }
+  return cv.toDataURL(); })();
+BUFF_ICON.strike = (() => { const cv = mkCanvas(64), g = cv.getContext('2d'); g.fillStyle = '#2c4f86'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#eef3ff'; g.fillRect(28, 6, 8, 52); g.fillRect(6, 24, 52, 9); g.fillRect(18, 48, 28, 6);
+  return cv.toDataURL(); })();
 const buffCache = ['', ''];
 function renderBuffs(i, list) {
   const key = JSON.stringify(list || []);
   if (key === buffCache[i]) return;
   buffCache[i] = key;
-  $('buffs' + i).innerHTML = (list || []).map(([k, v]) => '<div' + (typeof v === 'number' && v <= 3 ? ' class="end"' : '') + '><img src="' + BUFF_ICON[k] + '">' + (typeof v === 'number' ? v + ' с' : v) + '</div>').join('');
+  $('buffs' + i).innerHTML = (list || []).map(([k, v]) => '<div' + (typeof v === 'number' && v <= 3 && k !== 'allies' ? ' class="end"' : '') + '><img src="' + BUFF_ICON[k] + '">' + (typeof v === 'number' ? v + ' с' : v) + '</div>').join('');
 }
 
 function menu() {
@@ -2293,17 +2448,28 @@ function modeMenu() {             // как играть: одному, вдво
 function showHangar() {           // ангар: выбрать или купить танк за токены; выбранный остаётся навсегда
   gameMode = 'hangar'; loadSave(); sessionTank = '';
   state = 'ask';
-  const word = n => n === 1 ? 'попадание' : 'попадания';
+  const word = n => n === 1 ? 'попадание' : n < 5 ? 'попадания' : 'попаданий';
   const rows = ['light', 'medium', 'heavy'].map(k => {
     const T = TANKS[k], sp = T.speed === 1 ? 'обычная' : (T.speed > 1 ? '+' : '−') + Math.round(Math.abs(T.speed - 1) * 100) + ' %';
     const btn = save.tank === k ? '<span class="shopMax">выбран</span>'
       : save.owned[k] ? '<button class="shopBuy" data-pick="' + k + '">Выбрать</button>'
       : '<button class="shopBuy" data-buy="' + k + '"' + (save.tokens < T.cost ? ' disabled' : '') + '>' + T.cost + ' токенов</button>';
-    return '<div class="shopRow"><div><b>' + T.name + ' «' + T.proto + '»</b><br><small>выдерживает ' + T.hp + ' ' + word(T.hp) + ' · скорость ' + sp + ' · урон ' + String(T.dmg).replace('.', ',') + '</small></div>' + btn + '</div>';
+    const S = STARS[k], st = save.stars[k] | 0;
+    const starRow = !S ? '' : '<div class="shopRow"><div><span class="pips">' + '★'.repeat(st) + '☆'.repeat(3 - st) + '</span> <small>' +
+      (st >= 3 ? 'все звёзды: ' + S.desc[2] : 'звезда ' + (st + 1) + ': ' + S.desc[st]) + '</small></div>' +
+      (st >= 3 ? '<span class="shopMax">всё</span>' : save.owned[k] ? '<button class="shopBuy" data-star="' + k + '"' + (save.tokens < S.costs[st] ? ' disabled' : '') + '>★ ' + S.costs[st] + ' токенов</button>' : '<span class="shopMax"><small>сначала купи</small></span>') + '</div>';
+    const hp = T.hp + (k === 'light' && st >= 1 ? 1 : 0), spd = k === 'heavy' ? T.speed * (st >= 2 ? 1.3 : st >= 1 ? 1.1 : 1) : T.speed;
+    const sp2 = spd === 1 ? 'обычная' : (spd > 1 ? '+' : '−') + Math.round(Math.abs(spd - 1) * 100) + ' %';
+    return '<div class="shopRow"><div><b>' + T.name + ' «' + T.proto + '»</b><br><small>выдерживает ' + hp + ' ' + word(hp) + ' · скорость ' + sp2 + ' · урон ' + String(T.dmg).replace('.', ',') + '</small></div>' + btn + '</div>' + starRow;
   }).join('');
   showOverlay('Ангар', '<p class="wallet">Токенов: <b>' + save.tokens + '</b></p><p class="small">Токены меняются на монеты в магазине между уровнями: ' + TOKEN_PRICE + ' монет = 1 токен.</p><div class="shop">' + rows + '</div>',
     [{ label: 'Дальше ▶', fn: modeMenu }, { label: 'Назад', cls: 'gray', fn: menu }], modeMenu);
   $('ovText').querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => { save.tank = b.dataset.pick; storeSave(); showHangar(); }));
+  $('ovText').querySelectorAll('[data-star]').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.star, st = save.stars[k] | 0, c = STARS[k].costs[st];
+    if (st >= 3 || save.tokens < c) return;
+    save.tokens -= c; save.stars[k] = st + 1; storeSave(); SFX.pickup(); showHangar();
+  }));
   $('ovText').querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => {
     const k = b.dataset.buy;
     if (save.tokens < TANKS[k].cost) return;
@@ -2362,7 +2528,7 @@ function showHelp() {              // подробная справка — от
     P('<b>С неба.</b> Красный круг на земле — туда падает бомба, уезжай. Самолёт и вертолёт сбиваются ракетой. Парашютисты ставят мины — мигают красным, их можно расстрелять.') +
     P('<b>Белый тигр</b> всплывает из воды. Подбей его — и до конца уровня сможешь заезжать в воду, там тебя не достать. А если он ушёл сам — вода становится омутом: кто заедет, тот утонет, и ты, и враги.') +
     P('<b>Сложность.</b> На сложном (и всегда в Ангаре) в обойме ' + MAG_SIZE + ' снарядов: когда остаётся ' + RELOAD_AT + ', сама начинается перезарядка, а последние ещё можно выпустить. На сложном монет больше. Когда разбито почти всё поле, стены понемногу вырастают заново.') +
-    P('<b>Ангар</b> — танк на выбор: лёгкий Т-26 (быстрый, но с одного попадания), средний Т-34 (выдерживает два), тяжёлый ИС-7 (три, медленный, бьёт сильнее). Танки покупают за токены, а токены — за монеты в магазине.') +
+    P('<b>Ангар</b> — танк на выбор: лёгкий Т-26 (быстрый, но с одного попадания), средний Т-34 (выдерживает два), тяжёлый ИС-7 (три, медленный, бьёт сильнее). Танки покупают за токены, а токены — за монеты в магазине. Лёгкому и тяжёлому можно купить три звезды: третья даёт способность — у лёгкого помощники, у тяжёлого авианалёт (кнопка на экране, на клавиатуре Q, у синего /).') +
     P('<b>Дуэль</b> — друг против друга: подбей соперника ' + DUEL_FRAGS + ' раз или разбей его базу с флагом.'),
     [{ label: 'Назад', fn: menu }], menu);
 }
@@ -2377,13 +2543,13 @@ function askDifficulty(then) {
   state = 'ask';
   const pick = hard => () => { save.hard = hard; storeSave(); then(); };
   showOverlay('Сложность', '<p><b>Лёгкий</b> — стреляй сколько хочешь.</p><p><b>Сложный</b> — в обойме ' + MAG_SIZE + ' снарядов. Когда остаётся ' + RELOAD_AT + ', сама начинается перезарядка (' + RELOAD_TIME + ' секунды), а последние можно ещё выпустить. Зато монет на четверть больше.</p><p class="small">Хочешь ещё сложнее — выбери в главном меню <b>«Ангар»</b>: там враги сильнее, а танк можно выбрать.</p>',
-    [{ label: 'Лёгкий', fn: pick(false) }, { label: 'Сложный', cls: 'red', fn: pick(true) }], pick(save.hard));
+    [{ label: 'Лёгкий', fn: pick(false) }, { label: 'Сложный', cls: 'red', fn: pick(true) }, { label: 'Назад', cls: 'gray', fn: modeMenu }], pick(save.hard));
 }
 function askContinue() {
   state = 'ask';
   const go = () => beginGame(save.level);
   showOverlay('Продолжить?', '<p>Вы дошли до уровня ' + (save.level + 1) + '. Монет: <b>' + save.coins + '</b>.</p>',
-    [{ label: 'Продолжить: уровень ' + (save.level + 1), fn: go }, { label: 'Новая игра', cls: 'blue', fn: askReset }], go);
+    [{ label: 'Продолжить: уровень ' + (save.level + 1), fn: go }, { label: 'Новая игра', cls: 'blue', fn: askReset }, { label: 'Назад', cls: 'gray', fn: modeMenu }], go);
 }
 function askReset() {
   state = 'ask';
@@ -2400,7 +2566,7 @@ function startLevel() {
   buildLevel(level);
   levelCoins = 0;
   if (curL().boss) spawnBoss();
-  for (const p of players) { p.alive = false; if (p.lives <= 0) p.lives = 1; p.rockets = Math.max(p.rockets, ROCKET_AMMO[up('rocket')]); spawnPlayer(p); }   // выбывший напарник возвращается с одной жизнью
+  for (const p of players) { p.alive = false; p.strikeUsed = false; p.abilCd = 0; p.allyT = 0; if (p.lives <= 0) p.lives = 1; p.rockets = Math.max(p.rockets, ROCKET_AMMO[up('rocket')]); spawnPlayer(p); }   // выбывший напарник возвращается с одной жизнью
   state = 'play'; last = performance.now();
   banner(boss ? 'БОСС: ' + boss.kind.name : 'Уровень ' + (level + 1), boss ? 2400 : 1500, true);
   $('help').innerHTML = twoPlayers
@@ -2434,7 +2600,7 @@ function showWin() {
   }
   showOverlay('Уровень ' + (level + 1) + ' пройден!',
     '<p>Заработано: <b>' + levelCoins + '</b> монет. Всего: <b>' + save.coins + '</b>.</p>' + (LEVELS[level + 1].boss ? '<p><b>Дальше — БОСС! Загляни в магазин.</b></p>' : ''),
-    [{ label: 'Дальше ▶', fn: nextLevel }, { label: 'Магазин', cls: 'blue', fn: () => openShop(showWin) }], nextLevel);
+    [{ label: 'Дальше ▶', fn: nextLevel }, { label: 'Магазин', cls: 'blue', fn: () => openShop(showWin) }, { label: 'В меню', cls: 'gray', fn: menu }], nextLevel);
 }
 let shopBack = null;
 function openShop(back) { shopBack = back; state = 'shop'; renderShop(); }
@@ -2473,6 +2639,13 @@ function nextLevel() { level++; startLevel(); }
 function retryLevel() { for (const p of players) { p.lives = 3 + up('life'); p.armor = 0; p.twin = false; p.speedT = 0; } startLevel(); }
 
 let hudCache = '';
+function abilButton(i, ab) {      // кнопка способности: «ПОМОЩЬ» / «НАЛЁТ», при перезарядке — секунды
+  const b = $('abilBtn' + i);
+  if (!ab || ab[1] === -1) { b.style.display = 'none'; return; }
+  const txt = ab[1] > 0 ? String(ab[1]) : ab[1] === -2 ? 'В БОЮ' : ab[0] === 'allies' ? 'ПОМОЩЬ' : 'НАЛЁТ';
+  b.style.display = 'flex'; b.classList.toggle('wait', ab[1] > 0);
+  if (b.textContent !== txt) b.textContent = txt;
+}
 function updateHud() {
   if (state === 'net') return;                       // у гостя строку сверху присылает ведущий
   const hearts = p => p.lives > 0 ? '❤'.repeat(Math.min(p.lives, 8)) : '—';
@@ -2489,7 +2662,7 @@ function updateHud() {
   hudCache = key;
   ['hLevel', 'hEnemies', 'hP1', 'hP2', 'hScore'].forEach((id, i) => { $(id).textContent = parts[i]; });
   $('pauseBtn').style.display = idle ? 'none' : '';
-  for (const i of [0, 1]) { const q = !idle && !duel && (i === 0 || (twoPlayers && net.role !== 'host')) ? players[i] : null; $('rocketBtn' + i).style.display = q && q.rockets > 0 ? 'flex' : 'none'; }
+  for (const i of [0, 1]) { const q = !idle && !duel && (i === 0 || (twoPlayers && net.role !== 'host')) ? players[i] : null; $('rocketBtn' + i).style.display = q && q.rockets > 0 ? 'flex' : 'none'; abilButton(i, q ? abilityState(q) : null); }
 }
 
 // ───────────────────────── Игровой цикл ─────────────────────────
@@ -2581,8 +2754,10 @@ function update(dt) {
       if (e.fireTimer <= 0 && bulletsOf(e) < (e.boss ? 4 : 1)) { fire(e); e.fireTimer = e.boss ? rand(1.2, 2) : (rand(0.9, 2.4) - Math.min(level, 5) * 0.1) * (gameMode === 'hangar' ? 0.8 : 1); }
     }
   }
+  if (state === 'play') { updateAllies(dt); updateStrikes(dt); }
   for (const t of players) if (t.alive) syncTank(t, dt);
   for (const t of enemies) syncTank(t, dt);
+  for (const t of allies) syncTank(t, dt);
   for (const h of helis) syncHeli(h, dt);
 
   // снаряды
@@ -2597,10 +2772,10 @@ function update(dt) {
     if (cell === BRICK) { breakBrick(c, r); b.dead = true; continue; }
     if (cell === STEEL) { sparks(b.x - b.vx * 0.012, b.z - b.vz * 0.012); b.dead = true; continue; }
     if (cell === BASE) { hitBase(c, r, b); b.dead = true; continue; }
-    for (const t of (duel ? players.concat(enemies) : b.enemy ? players : enemies)) {
+    for (const t of (duel ? players.concat(enemies) : b.enemy ? players.concat(allies) : enemies)) {
       if (duel && t.team === b.team) continue;                      // по своим не попадаем
       const hw = (t.half || HALF) + 0.03;
-      if (t.alive && Math.abs(t.x - b.x) < hw && Math.abs(t.z - b.z) < hw) { b.dead = true; hitTank(t, b.dmg); break; }
+      if (t.alive && Math.abs(t.x - b.x) < hw && Math.abs(t.z - b.z) < hw) { b.dead = true; hitTank(t, b.dmg, !!b.owner.boss); break; }
     }
     if (!b.dead && !b.enemy) {
       // вертолёт на экране виден чуть «выше» своей тени — засчитываем попадание и в тень, и в сам вертолёт
@@ -2691,7 +2866,7 @@ requestAnimationFrame(frame);
 if (handoff.net === 'host' || (handoff.net === 'join' && handoff.code)) {     // пришли с другого адреса — продолжаем
   history.replaceState(null, '', location.pathname);
   gameMode = handoff.mode === 'hangar' ? 'hangar' : 'classic'; loadSave();
-  if (TANKS[handoff.tank]) sessionTank = handoff.tank;
+  if (TANKS[handoff.tank]) { sessionTank = handoff.tank; sessionStars = Math.max(0, Math.min(3, handoff.stars | 0)); }
   if (handoff.net === 'host') netConnect('host'); else netConnect('join', handoff.code.replace(/\D/g, '').slice(0, 4));
 }
 </script>
