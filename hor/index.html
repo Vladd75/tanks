@@ -68,7 +68,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.7</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.8</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -102,6 +102,17 @@
     </select>
     <input id="title" type="text" placeholder="Название видео (для имени файла)">
   </div>
+  <div class="row">
+    <select id="lay" title="Как расставить окна">
+      <option value="grid">Окна: сетка сама</option>
+      <option value="rowfull">Все в один ряд, во всю высоту (узко)</option>
+      <option value="row">Все в один ряд, сверху и снизу — фон</option>
+      <option value="c2">По 2 в ряд</option>
+      <option value="c3">По 3 в ряд</option>
+      <option value="c4">По 4 в ряд</option>
+      <option value="c5">По 5 в ряд</option>
+    </select>
+    <button id="bFaces" title="Найти лица и выставить головы одного размера и на одной высоте">🙂 Выровнять головы</button></div>
   <div id="out"></div>
 
   <div id="list"></div>
@@ -179,6 +190,12 @@
       <b>Сохранение</b>
       <ul>
         <li>Выбрать формат (Stories 9:16, пост 4:5, квадрат, YouTube 16:9) и написать название.</li>
+        <li>Расстановка окон: сетка сама, все в один ряд (во всю высоту — узко, или с фоном сверху и снизу), по 2…5 в ряд.
+          Пустые места заливаются размытым фоном из цветов самих видео.</li>
+        <li>🙂 Выровнять головы — программа находит лица и делает головы одного размера и на одной высоте
+          (нужен интернет, первый раз грузит около 10 МБ). После смены расстановки — нажать ещё раз.</li>
+        <li>Кадр вручную: нажать на окно, открыть 🔓 у голоса, пальцем двигать картинку, двумя пальцами — увеличить (только пропорционально).</li>
+        <li>Громкость голосов подтягивается сама до нормальной, ползунок «громкость» — подправить поверх.</li>
         <li>«🎬 Сохранить видео» — песня проиграется целиком, экран не выключать. Потом «⬇ Скачать» или «📤 Отправить».</li>
         <li>💾 — сохранить весь проект файлом (резервная копия).</li>
       </ul>
@@ -219,7 +236,7 @@ let ctx = null, master = null, limiter = null;
 function ac() {
   if (!ctx) {
     ctx = new AudioContext({ latencyHint: 'interactive' });
-    master = ctx.createGain(); master.gain.value = 0.8;
+    master = ctx.createGain(); master.gain.value = 0.7;
     limiter = ctx.createDynamicsCompressor();   // много голосов вместе не «хрипят»
     limiter.threshold.value = -6; limiter.knee.value = 6; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.15;
     master.connect(limiter); limiter.connect(ctx.destination);
@@ -282,10 +299,22 @@ function showLat() { $('#lat').value = getLat(); $('#latV').textContent = getLat
 // ---------- дорожки ----------
 let tracks = [];   // {id, kind:'video'|'audio', name, blob, base, fine, vol, on, buffer, video}
 const offsetOf = t => t.base + t.fine / 1000;   // сколько секунд пропустить в начале клипа
-function save(t) { return DB.put({ id: t.id, kind: t.kind, name: t.name, blob: t.blob, base: t.base, fine: t.fine, vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes }); }
+function save(t) { return DB.put({ id: t.id, kind: t.kind, name: t.name, blob: t.blob, base: t.base, fine: t.fine, vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, frame: t.frame }); }
 
+// Автоуровень: микрофон пишется «как есть» и на планшете тихо (было −31 дБ в пике). Каждый голос подтягиваем
+// до одной громкости: по «почти самому громкому» месту (99,9 %, чтобы стук по микрофону не решал), до 0,4.
+function normOf(buf) {
+  const d = buf.getChannelData(0), hist = new Uint32Array(1000), step = Math.max(1, Math.floor(d.length / 2e6));
+  let n = 0;
+  for (let i = 0; i < d.length; i += step) { hist[Math.min(999, Math.floor(Math.abs(d[i]) * 1000))]++; n++; }
+  let k = 999, left = n * 0.001;
+  while (k > 0 && left > 0) left -= hist[k--];
+  const p = Math.max(0.001, (k + 1) / 1000);
+  return Math.max(0.5, Math.min(30, 0.4 / p));   // 0,4: три голоса вместе — около −1 дБ в пике, без перегруза
+}
 async function prepare(t) {
   t.buffer = await ac().decodeAudioData(await t.blob.arrayBuffer());
+  t.norm = t.kind === 'video' ? normOf(t.buffer) : 1;   // минусовка уже сведена — её не трогаем
   if (t.kind === 'video') {
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.preload = 'auto';
@@ -327,14 +356,15 @@ function startTracks(t0, from = 0, pick = () => true, metro = false) {
 // ✂ Тишина: участки mutes [a, b] — в секундах самой записи, поэтому «сдвиг» их не сбивает.
 // Громкость голоса гасим по расписанию, края плавные (20 мс) — без щелчков.
 function applyMutes(p, t, t0, from) {
-  p.value = t.vol;
+  const vol = t.vol * (t.norm || 1);   // ползунок «громкость» — поверх автоуровня
+  p.value = vol;
   if (!t.mutes || !t.mutes.length) return;
   const at = x => t0 + (x - offsetOf(t) - from), F = 0.02;
-  p.setValueAtTime(t.vol, t0);
+  p.setValueAtTime(vol, t0);
   for (const [a, b] of t.mutes) {
     const ta = at(a), tb = at(b); if (tb <= t0) continue;
-    if (ta - F <= t0) p.setValueAtTime(0, t0); else { p.setValueAtTime(t.vol, ta - F); p.linearRampToValueAtTime(0, ta); }
-    p.setValueAtTime(0, tb); p.linearRampToValueAtTime(t.vol, tb + F);
+    if (ta - F <= t0) p.setValueAtTime(0, t0); else { p.setValueAtTime(vol, ta - F); p.linearRampToValueAtTime(0, ta); }
+    p.setValueAtTime(0, tb); p.linearRampToValueAtTime(vol, tb + F);
   }
 }
 // Новый участок тишины: пересекающиеся сливаются в один, список по порядку
@@ -399,10 +429,18 @@ let selectedId = null;   // голос, чья карточка показана
 let countdown = 0;
 
 // Сетка под любой формат: подбираем столбцы/ряды так, чтобы окно было ближе к портрету 3:4 и меньше пустых мест
+// У каждого окна ещё .bg — область фона: пустые места вокруг окна заливаются размытой картинкой этого же голоса
 function layout(n) {
   if (n <= 0) return [];
+  const lay = $('#lay').value;
+  if (lay === 'row' || lay === 'rowfull') {   // все в один ряд: rowfull — во всю высоту (узко, «по уши»), row — 9:16 и фон
+    const gap = 6, w = (W - gap * (n - 1)) / n, h = lay === 'rowfull' ? H : Math.min(H, w * 16 / 9), y = (H - h) / 2, out = [];
+    for (let i = 0; i < n; i++) { const r = [i * (w + gap), y, w, h]; if (h < H) r.bg = [i * (w + gap), 0, w, H]; out.push(r); }
+    return out;
+  }
   let cols = 1, rows = n, best = Infinity;
-  for (let c = 1; c <= n; c++) {
+  if (/^c\d$/.test(lay)) { cols = Math.min(n, +lay[1]); rows = Math.ceil(n / cols); }   // «по N в ряд»
+  else for (let c = 1; c <= n; c++) {   // авто: окно ближе к портрету 3:4 и меньше пустых мест
     const r = Math.ceil(n / c), score = Math.abs(Math.log((W / c) / (H / r) / 0.75)) + 0.15 * (c * r - n);
     if (score < best) { best = score; cols = c; rows = r; }
   }
@@ -410,16 +448,39 @@ function layout(n) {
   for (let i = 0; i < n; i++) {
     const r = Math.floor(i / cols), inRow = Math.min(cols, n - r * cols);
     const shift = (cols - inRow) * (w + gap) / 2;   // неполный последний ряд — по центру
-    out.push([shift + (i % cols) * (w + gap), r * (h + gap), w, h]);
+    const rect = [shift + (i % cols) * (w + gap), r * (h + gap), w, h], bw = W / inRow;
+    if (inRow < cols) rect.bg = [(i % cols) * bw, r * (h + gap), bw, h];   // пустые бока — фоном
+    out.push(rect);
   }
   return out;
 }
-function drawCover(v, x, y, w, h) {
-  const vw = v.videoWidth, vh = v.videoHeight;
-  if (!vw) return;
-  const s = Math.max(w / vw, h / vh), sw = w / s, sh = h / s;
+// fr — кадр голоса {z, cx, cy}: увеличение (≥1, только пропорционально, без чёрных полей) и центр в долях исходного видео
+function cropOf(v, w, h, fr) {
+  const vw = v.videoWidth, vh = v.videoHeight, s = Math.max(w / vw, h / vh) * (fr ? fr.z : 1), sw = w / s, sh = h / s;
+  const sx = Math.max(0, Math.min(vw - sw, (fr ? fr.cx : 0.5) * vw - sw / 2));
+  const sy = Math.max(0, Math.min(vh - sh, (fr ? fr.cy : 0.5) * vh - sh / 2));
+  return { s, sx, sy, sw, sh };
+}
+// Фон «из соседних пикселей»: та же картинка, ужатая в крошечную и растянутая обратно — мягкое размытие,
+// дешёвое для планшета (обычный blur на весь кадр 30 раз в секунду он не потянет)
+const tiny = document.createElement('canvas'), tg = tiny.getContext('2d');
+const mid = document.createElement('canvas'), mg = mid.getContext('2d');
+function drawBlur(v, [x, y, w, h], fr) {
+  if (!v.videoWidth) return;
+  tiny.width = Math.max(4, Math.round(w / 48)); tiny.height = Math.max(4, Math.round(h / 48));
+  mid.width = tiny.width * 6; mid.height = tiny.height * 6;
+  const c = cropOf(v, w, h, fr);
+  tg.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, tiny.width, tiny.height);
+  mg.filter = 'blur(6px)'; mg.drawImage(tiny, -6, -6, mid.width + 12, mid.height + 12);   // смягчаем «квадратики» на маленьком холсте
+  g.save(); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.translate(x + w, y); g.scale(-1, 1); g.drawImage(mid, 0, 0, w, h); g.restore();
+  g.fillStyle = 'rgba(30,24,20,.25)'; g.fillRect(x, y, w, h);
+}
+function drawCover(v, x, y, w, h, fr) {
+  if (!v.videoWidth) return;
+  const c = cropOf(v, w, h, fr);
   g.save(); g.translate(x + w, y); g.scale(-1, 1);     // зеркально, как в селфи
-  g.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, w, h);
+  g.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, w, h);
   g.restore();
 }
 function frame() { draw(); requestAnimationFrame(frame); }
@@ -457,7 +518,8 @@ function draw() {
   const showLive = cam && state !== 'export' && state !== 'play' && vids.length < MAX_TRACKS;
   const all = showLive ? [...vids, $('#live')] : vids;
   const rects = layout(all.length);
-  all.forEach((v, i) => drawCover(v, ...rects[i]));
+  all.forEach((v, i) => { if (rects[i].bg) drawBlur(v, rects[i].bg, shown[i] && shown[i].frame); });
+  all.forEach((v, i) => drawCover(v, ...rects[i], shown[i] && shown[i].frame));
   const k = Math.min(W, H) / 720;   // размер надписей под формат
   tiles = shown.map((t, i) => ({ t, r: rects[i] }));   // для нажатия на окно
   if (state !== 'export') {   // подписи и рамка выбранного — только на экране, в готовое видео не идут
@@ -490,9 +552,10 @@ function draw() {
 // ---------- интерфейс ----------
 function msg(t) { $('#msg').textContent = $('#edMsg').textContent = t || ''; }   // и на экране ножниц
 function busy(b) {
-  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj']) $(id).disabled = b;
+  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj', '#bFaces', '#lay']) $(id).disabled = b;
   $('#bStop').disabled = !b;
   $('#fPlay').disabled = b; $('#fStop').disabled = !b;
+  stageTouch();
   // у голоса под замком настройки (класс lk) остаются выключенными
   document.querySelectorAll('.track button, .track input').forEach(e => e.disabled = b || (e.classList.contains('lk') && e.closest('.track').classList.contains('locked')));
   showUndo();
@@ -500,7 +563,7 @@ function busy(b) {
 
 // ---------- отмена: стопка прошлых состояний (настройки голоса, удалённый голос, прошлый дубль) ----------
 const undoStack = [];
-const settingsOf = t => ({ fine: t.fine, vol: t.vol, on: t.on, name: t.name, locked: !!t.locked, base: t.base, mutes: (t.mutes || []).map(r => [...r]) });
+const settingsOf = t => ({ fine: t.fine, vol: t.vol, on: t.on, name: t.name, locked: !!t.locked, base: t.base, mutes: (t.mutes || []).map(r => [...r]), frame: t.frame && { ...t.frame } });
 function remember(u) { u.time = Date.now(); undoStack.push(u); if (undoStack.length > 40) undoStack.shift(); showUndo(); }
 // key — склеивать частые одинаковые шаги (нажатия −/+ подряд) в один
 function rememberSet(t, key) {
@@ -596,7 +659,7 @@ function renderList() {
     t.wave.height = Math.round(56 * (window.devicePixelRatio || 1));
   });
   $('#pos').max = Math.max(1, songLength());
-  drawWaves(); showTrim();
+  drawWaves(); showTrim(); stageTouch();
 }
 
 // ---------- волны голосов: один и тот же отрезок песни у всех, чтобы вступления стояли в линию ----------
@@ -839,14 +902,58 @@ function setPos(T) {
   $('#pos').value = Math.max(0, Math.min(+$('#pos').max, T)); $('#pos').oninput();
 }
 // Нажатие на окно видео: карточка этого голоса переезжает под видео; ещё раз — обратно в список
+let dragged = false;   // палец двигал картинку — это не нажатие «выбрать окно»
 $('#stage').onclick = e => {
+  if (dragged) { dragged = false; return; }
   const r = $('#stage').getBoundingClientRect(), x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
   const hit = tiles.find(({ r: [tx, ty, tw, th] }) => x >= tx && x < tx + tw && y >= ty && y < ty + th);
   if (!hit) return;
   selectedId = selectedId === hit.t.id ? null : hit.t.id;
   renderList();
   if (state !== 'idle') busy(true);   // идёт прослушивание — новая карточка тоже заблокирована
+  const t = frameable();
+  if (t) msg(`«${t.name}»: картинку можно подвинуть пальцем, двумя пальцами — увеличить. ↶ — отменить.`);
+  else if (selectedId && hit.t.locked) msg(`«${hit.t.name}» под замком 🔒 — откройте замок, чтобы поправить кадр.`);
 };
+// Кадр выбранного голоса правится пальцами прямо на видео — если голос не под замком
+function frameable() {
+  const t = tracks.find(x => x.id === selectedId);
+  return t && t.video && !t.locked && (state === 'idle' || state === 'play') ? t : null;
+}
+function stageTouch() { $('#stage').style.touchAction = frameable() ? 'none' : ''; }   // иначе палец листает страницу
+(() => {
+  const st = $('#stage'), pts = new Map(); let pinch = null, moved = false, t = null;
+  const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+  const tileOf = t => tiles.find(h => h.t === t);
+  st.onpointerdown = e => {
+    t = frameable(); if (!t || !tileOf(t)) return;
+    try { st.setPointerCapture(e.pointerId); } catch (er) {}
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
+    if (pts.size === 1) moved = false;
+    if (pts.size === 2) pinch = { d: dist(), z: (t.frame || { z: 1 }).z };
+  };
+  st.onpointermove = e => {
+    const p = pts.get(e.pointerId); if (!p || !t) return;
+    const k = W / st.getBoundingClientRect().width, dx = (e.clientX - p.x) * k, dy = (e.clientY - p.y) * k;
+    if (!moved && pts.size === 1 && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) < 6) return;   // дрожание пальца — не сдвиг
+    p.x = e.clientX; p.y = e.clientY;
+    if (!moved) { rememberSet(t, 'frame'); moved = true; }
+    const h = tileOf(t); if (!h) return;
+    const [, , w, hh] = h.r, v = t.video, fr = t.frame = { ...(t.frame || { z: 1, cx: 0.5, cy: 0.5 }) };
+    if (pts.size === 2 && pinch) fr.z = Math.max(1, Math.min(5, pinch.z * dist() / pinch.d));
+    else {
+      const c = cropOf(v, w, hh, fr);   // картинка зеркальная: палец вправо — центр кадра правее в исходнике
+      fr.cx = c.sx / v.videoWidth + c.sw / v.videoWidth / 2 + dx / (c.s * v.videoWidth);
+      fr.cy = c.sy / v.videoHeight + c.sh / v.videoHeight / 2 - dy / (c.s * v.videoHeight);
+    }
+  };
+  const up = e => {
+    if (!pts.delete(e.pointerId)) return;
+    if (pts.size < 2) pinch = null;
+    if (!pts.size && moved && t) { dragged = true; save(t); setTimeout(() => dragged = false, 400); }
+  };
+  st.onpointerup = up; st.onpointercancel = up;
+})();
 // Круглые кнопки — только когда основные «Слушать / Сохранить» ушли с экрана
 if (window.IntersectionObserver)
   new IntersectionObserver(([e]) => $('#fab').classList.toggle('away', e.isIntersecting)).observe($('#bPlay'));
@@ -949,9 +1056,9 @@ const PROJ_MAGIC = 'HORPROJ1\n';
 function saveProject(box, where) {
   if (!tracks.length) return msg('Пока нечего сохранять.');
   const head = JSON.stringify({
-    app: 'hor', v: 2, lat: getLat(), trim: [songIn, songOut], fmt: $('#fmt').value, title: $('#title').value, notes: $('#notes').value,
+    app: 'hor', v: 2, lat: getLat(), trim: [songIn, songOut], lay: $('#lay').value, fmt: $('#fmt').value, title: $('#title').value, notes: $('#notes').value,
     bpm: +$('#bpm').value, tracks: tracks.map(t => ({ id: t.id, kind: t.kind, name: t.name, base: t.base, fine: t.fine,
-                                                      vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, type: t.blob.type, size: t.blob.size })),
+                                                      vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, frame: t.frame, type: t.blob.type, size: t.blob.size })),
   });
   const file = new File([PROJ_MAGIC, head, '\n', ...tracks.map(t => t.blob)], fileName('_proekt', 'horproj'), { type: 'application/octet-stream' });
   offerFile(box, file, msg);
@@ -980,6 +1087,7 @@ $('#fProj').onchange = async e => {
     if (head.lat != null && head.v >= 2) setLat(head.lat);   // в старых проектах задержка мерилась по-другому
     if (head.fmt) setFormat(head.fmt);
     setTrim(...(head.trim || [0, 0]));
+    if (head.lay) { $('#lay').value = head.lay; $('#lay').onchange(); }
     if (head.bpm) { $('#bpm').value = head.bpm; $('#bpm').onchange(); }
     $('#title').value = head.title || ''; $('#title').onchange({ target: $('#title') });
     if (head.notes && !$('#notes').value.includes(head.notes)) { $('#notes').value = (($('#notes').value ? $('#notes').value + '\n\n' : '') + head.notes); $('#notes').oninput(); }
@@ -1075,6 +1183,72 @@ function alignVoice(t) {
   save(t); renderList();
   msg(`«${t.name}» сдвинут на ${Math.abs(ms)} мс ${ms > 0 ? 'раньше' : 'позже'}. Послушайте; не понравится — ↶ Отменить.`);
 }
+
+// ---------- 🙂 выровнять головы: находим лицо в каждом голосе и ставим кадры так, чтобы головы были одного размера
+// и на одной высоте. Модель Google MediaPipe (лица) грузится из интернета только при нажатии, потом из кэша.
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+let faceDet = null;
+async function getFaceDet() {
+  if (faceDet) return faceDet;
+  const { FaceDetector, FilesetResolver } = await import(MP + '/vision_bundle.mjs');
+  const files = await FilesetResolver.forVisionTasks(MP + '/wasm');
+  faceDet = await FaceDetector.createFromOptions(files, {
+    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite' },
+    runningMode: 'IMAGE', minDetectionConfidence: 0.5,
+  });
+  return faceDet;
+}
+function seekTo(v, s) {
+  return new Promise(r => { const ok = () => { v.removeEventListener('seeked', ok); r(); }; v.addEventListener('seeked', ok); v.currentTime = s; setTimeout(ok, 2000); });
+}
+// Лицо в голосе: середина и высота в долях кадра — медиана по 4 моментам песни (вдруг на одном отвернулась)
+async function faceOf(t) {
+  const v = t.video, k = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
+  const cv = document.createElement('canvas'); cv.width = Math.round(v.videoWidth * k); cv.height = Math.round(v.videoHeight * k);
+  const x = cv.getContext('2d'), off = Math.max(0, offsetOf(t)), len = t.buffer.duration - off, found = [];
+  for (const f of [0.2, 0.4, 0.6, 0.8]) {
+    await seekTo(v, off + f * len);
+    x.drawImage(v, 0, 0, cv.width, cv.height);
+    const d = faceDet.detect(cv).detections.map(d => d.boundingBox).sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (d) found.push([(d.originX + d.width / 2) / cv.width, (d.originY + d.height / 2) / cv.height, d.height / cv.height]);
+  }
+  v.currentTime = Math.max(0, offsetOf(t));
+  if (!found.length) return null;
+  const med = i => found.map(f => f[i]).sort((a, b) => a - b)[Math.floor(found.length / 2)];
+  return { cx: med(0), cy: med(1), h: med(2) };
+}
+$('#bFaces').onclick = async () => {
+  const vids = tracks.filter(t => t.video && t.on && t.video.videoWidth);
+  const todo = vids.filter(t => !t.locked), skip = vids.filter(t => t.locked);
+  if (!todo.length) return msg(vids.length ? 'Все голоса под замком 🔒 — нечего выравнивать.' : 'Пока нет видео.');
+  busy(true); msg('Загружаю распознавание лиц (первый раз — около 10 МБ)…');
+  const faces = new Map();
+  try {
+    await getFaceDet();
+    for (const t of todo) { msg(`Ищу лицо: «${t.name}»…`); const f = await faceOf(t); if (f) faces.set(t, f); }
+  } catch (e) { busy(false); return msg('Не получилось загрузить распознавание лиц (нужен интернет): ' + e.message); }
+  busy(false);
+  if (!faces.size) return msg('Лиц не нашёл — поправьте кадр вручную: нажмите на окно и двигайте пальцем.');
+  // Высота лица в окне без увеличения; все подтягиваем до самого крупного (уменьшать нельзя — будут чёрные поля)
+  // окна — как в готовом видео (без окна камеры)
+  const shown = tracks.filter(t => t.video && t.on && t !== replacing), rects = layout(shown.length), at1 = new Map();
+  for (const [t, f] of faces) {
+    const r = rects[shown.indexOf(t)]; if (!r) continue;
+    const [, , w, hh] = r, v = t.video, s0 = Math.max(w / v.videoWidth, hh / v.videoHeight);
+    at1.set(t, { f, w, hh, s0, frac: f.h * v.videoHeight * s0 / hh });
+  }
+  const target = Math.min(0.45, Math.max(...[...at1.values()].map(a => a.frac)));
+  remember({ type: 'group', items: [...at1.keys()].map(t => ({ id: t.id, before: settingsOf(t) })) });
+  for (const [t, { f, hh, s0, frac }] of at1) {
+    const z = Math.max(1, Math.min(5, target / frac)), s = s0 * z, v = t.video;
+    // лицо — по середине окна по ширине и на 42 % высоты (чуть выше середины, как в кадре у фотографа)
+    t.frame = { z, cx: f.cx, cy: f.cy + (0.5 - 0.42) * hh / s / v.videoHeight };
+    save(t);
+  }
+  const miss = todo.filter(t => !faces.has(t)).map(t => t.name);
+  msg(`Головы выровнены: ${at1.size}.` + (miss.length ? ` Лицо не нашлось: ${miss.join(', ')}.` : '') +
+      (skip.length ? ` Под замком, не трогал: ${skip.map(t => t.name).join(', ')}.` : '') + ' Не понравится — ↶ Отменить.');
+};
 
 // ---------- ✂ экран ножниц: крупная волна, красная линия посередине ----------
 // mode 'voice' — тишина на участке голоса t; 'song' — начало и конец всей песни.
@@ -1230,12 +1404,14 @@ $('#bClear').onclick = async () => {
     $('#bpm').value = localStorage.getItem('choir.bpm') || 80;
     $('#metOn').checked = localStorage.getItem('choir.met') === '1';
     $('#metVol').value = localStorage.getItem('choir.metVol') || 0.1;
+    $('#lay').value = localStorage.getItem('choir.lay') || 'grid';
     [songIn, songOut] = JSON.parse(localStorage.getItem('choir.trim') || '[0,0]');
     $('#notes').value = localStorage.getItem('choir.notes') || '';
   } catch (e) {}
   $('#bpm').onchange = () => keep('choir.bpm', $('#bpm').value);
   $('#metOn').onchange = () => keep('choir.met', $('#metOn').checked ? '1' : '0');
   $('#metVol').onchange = () => keep('choir.metVol', $('#metVol').value);
+  $('#lay').onchange = () => { keep('choir.lay', $('#lay').value); msg('Расстановка сменилась — можно ещё раз «🙂 Выровнять головы».'); };
   $('#notes').oninput = () => keep('choir.notes', $('#notes').value);
   if (!window.MediaRecorder || !navigator.mediaDevices) { msg('Этот браузер не умеет записывать. Откройте в Chrome.'); busy(true); $('#bStop').disabled = true; return; }
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
