@@ -38,6 +38,7 @@
   textarea { width:100%; font:inherit; padding:10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
   .track .name { cursor:pointer; }
   .track .btns { display:flex; gap:6px; }
+  .track .nudge { flex:none; min-height:36px; min-width:36px; padding:4px 10px; font-size:20px; line-height:1; }
   .track .wave { grid-column:1 / -1; width:100%; height:56px; border-radius:8px; display:block; }
   #fab { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; z-index:10; }
   #fab button { width:58px; height:58px; min-height:0; border-radius:50%; padding:0; font-size:24px; flex:none;
@@ -105,7 +106,7 @@
     <div class="card">
       <button id="bClear">🗑 Начать заново (удалить все голоса)</button>
     </div>
-    <div class="hint" style="text-align:center">Версия 1.6 · 04.11.2026</div>
+    <div class="hint" style="text-align:center">Версия 1.7 · 04.11.2026</div>
   </details>
 
   <details>
@@ -127,7 +128,8 @@
       <li>Снова «● Записать голос»: прошлые голоса звучат в наушниках, поёте следующий. Запись остановится сама, когда песня кончится.</li>
       <li>«▶ Слушать всё» — проверить. Ползунок «с места» — слушать с середины.</li>
       <li>У каждого голоса: 🎧 — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
-      <li>Голос чуть раньше/позже остальных — ползунок «сдвиг» у этого голоса. Под каждым голосом — его звуковая волна
+      <li>Голос раньше/позже остальных — ползунок «сдвиг» у этого голоса (до 2 секунд), а «−» / «+» рядом — точно, по 10 мс.
+        Если отстают все новые голоса — один раз сделайте ⚙️ «Подстроить автоматически». Под каждым голосом — его звуковая волна
         (3 секунды вокруг красной линии): поставьте «с места» туда, где все вступают, и двигайте «сдвиг», пока начала
         звуков не встанут в одну вертикаль. Круглые ▶ / ■ справа внизу — слушать, не листая наверх.</li>
       <li>Выбрать формат (Stories, пост…) и название → «🎬 Сохранить видео»: песня проиграется целиком и получится файл.</li>
@@ -364,7 +366,7 @@ function renderList() {
       <span class="name" title="нажмите, чтобы переименовать"></span>
       <span class="btns"><button class="solo" title="послушать только этот">🎧</button>${t.kind === 'video' ? '<button class="redo" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del" title="удалить">✕</button></span>
       <label>громкость <input class="vol" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
-      <label>сдвиг <input class="fine" type="range" min="-300" max="300" step="10" value="${t.fine}"> <span>${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
+      <label>сдвиг <button class="nudge" data-d="-10">−</button><input class="fine" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge" data-d="10">+</button> <span class="fineV">${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
       <canvas class="wave" height="56"></canvas>`;
     t.wave = d.querySelector('.wave');
     const nm = d.querySelector('.name');
@@ -388,11 +390,15 @@ function renderList() {
     vol.onchange = () => save(t);
     const fine = d.querySelector('.fine');
     fine.oninput = () => {
-      t.fine = +fine.value; fine.nextElementSibling.textContent = (t.fine > 0 ? '+' : '') + t.fine + ' мс';
+      t.fine = +fine.value; d.querySelector('.fineV').textContent = (t.fine > 0 ? '+' : '') + t.fine + ' мс';
       if (t.video) t.video.currentTime = Math.max(0, offsetOf(t));
       drawWaves();
     };
     fine.onchange = () => save(t);
+    // −/+ — точная подгонка по 10 мс, когда пальцем по длинной полоске не попасть
+    d.querySelectorAll('.nudge').forEach(b => b.onclick = () => {
+      fine.value = Math.max(-2000, Math.min(2000, t.fine + +b.dataset.d)); fine.oninput(); save(t);
+    });
     box.appendChild(d);
     t.wave.width = Math.round(t.wave.clientWidth * (window.devicePixelRatio || 1));
     t.wave.height = Math.round(56 * (window.devicePixelRatio || 1));
