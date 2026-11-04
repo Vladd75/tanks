@@ -32,6 +32,19 @@
   #out a { display:inline-block; margin-top:6px; }
   .hidden-media { position:fixed; left:0; top:0; width:2px; height:2px; opacity:0; pointer-events:none; overflow:hidden; }
   ol { padding-left:20px; margin:6px 0; } li { margin:4px 0; }
+  .metro { align-items:center; } .metro label { display:flex; gap:6px; align-items:center; }
+  #bpm { width:80px; flex:none; font:inherit; padding:8px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .pos { display:flex; gap:8px; align-items:center; } .pos input { flex:1; }
+  textarea { width:100%; font:inherit; padding:10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
+  .track .name { cursor:pointer; }
+  .track .btns { display:flex; gap:6px; }
+  .track .wave { grid-column:1 / -1; width:100%; height:56px; border-radius:8px; display:block; }
+  #fab { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; z-index:10; }
+  #fab button { width:58px; height:58px; min-height:0; border-radius:50%; padding:0; font-size:24px; flex:none;
+                background:rgba(93,123,79,.82); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  #fab #fStop { background:rgba(58,49,40,.75); }
+  #fab button:disabled { opacity:.3; }
+  main { padding-bottom:150px; }
 </style>
 </head>
 <body>
@@ -46,10 +59,15 @@
     <button id="bRec" class="big rec">● Записать голос</button>
     <button id="bStop" class="big" disabled>■ Стоп</button>
   </div>
+  <div class="row metro">
+    <label><input id="metOn" type="checkbox"> 🥁 Метроном</label>
+    <input id="bpm" type="number" min="30" max="240" step="1" value="80" inputmode="numeric"> <span class="hint">ударов в минуту</span>
+  </div>
   <div class="row">
     <button id="bPlay" class="go">▶ Слушать всё</button>
     <button id="bExport">🎬 Сохранить видео</button>
   </div>
+  <label class="hint pos">с места <input id="pos" type="range" min="0" max="1" step="0.1" value="0"> <span id="posV">0:00</span></label>
   <div class="row">
     <select id="fmt" title="Формат видео">
       <option value="story">Stories / Reels — 9:16 (1080×1920)</option>
@@ -78,24 +96,46 @@
       <input id="fMinus" type="file" accept="audio/*">
     </div>
     <div class="card">
+      <b>Проект файлом (резервная копия)</b>
+      <div class="hint">Все голоса и настройки — одним файлом. Если очистить Chrome или сменить телефон, проект можно загрузить обратно.</div>
+      <div class="row"><button id="bSaveProj">💾 Сохранить проект</button><button id="bLoadProj">📂 Загрузить проект</button></div>
+      <input id="fProj" type="file" hidden>
+      <div id="projOut"></div>
+    </div>
+    <div class="card">
       <button id="bClear">🗑 Начать заново (удалить все голоса)</button>
     </div>
-    <div class="hint" style="text-align:center">Версия 1.4 · 04.11.2026</div>
+    <div class="hint" style="text-align:center">Версия 1.6 · 04.11.2026</div>
+  </details>
+
+  <details>
+    <summary>💡 Заметки и идеи</summary>
+    <div class="card">
+      <div class="hint">Что угодно: слова, кто какой голос поёт, что улучшить в программе. Сохраняется само.</div>
+      <textarea id="notes" rows="7" placeholder="Например: «Тихая ночь» — второй голос на терцию ниже…"></textarea>
+      <div class="row"><button id="bSendNotes">📤 Отправить (Telegram и др.)</button></div>
+      <div id="notesMsg" class="hint"></div>
+    </div>
   </details>
 
   <details>
     <summary>❓ Как пользоваться</summary>
     <ol>
-      <li>Вставить проводные наушники. Поставить телефон, чтобы было видно лицо.</li>
+      <li>Вставить проводные наушники. Телефон держать <b>вертикально</b>, чтобы было видно лицо.</li>
+      <li>Нет минусовки — включите «🥁 Метроном» и выберите темп: щелчки звучат только в наушниках и в видео не попадают.</li>
       <li>«● Записать голос» → отсчёт 3-2-1 → петь первый голос → «■ Стоп».</li>
       <li>Снова «● Записать голос»: прошлые голоса звучат в наушниках, поёте следующий. Запись остановится сама, когда песня кончится.</li>
-      <li>«▶ Слушать всё» — проверить. Неудачный голос — ✕ и записать заново.</li>
-      <li>Голос чуть раньше/позже остальных — ползунок «сдвиг» у этого голоса.</li>
-      <li>«🎬 Сохранить видео» — проиграет песню целиком и соберёт видео-файл, его можно отправить.</li>
+      <li>«▶ Слушать всё» — проверить. Ползунок «с места» — слушать с середины.</li>
+      <li>У каждого голоса: 🎧 — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
+      <li>Голос чуть раньше/позже остальных — ползунок «сдвиг» у этого голоса. Под каждым голосом — его звуковая волна
+        (3 секунды вокруг красной линии): поставьте «с места» туда, где все вступают, и двигайте «сдвиг», пока начала
+        звуков не встанут в одну вертикаль. Круглые ▶ / ■ справа внизу — слушать, не листая наверх.</li>
+      <li>Выбрать формат (Stories, пост…) и название → «🎬 Сохранить видео»: песня проиграется целиком и получится файл.</li>
     </ol>
-    <div class="hint">Всё хранится в этом браузере на этом телефоне и не пропадает при закрытии.</div>
+    <div class="hint">Всё хранится в этом браузере на этом телефоне и не пропадает при закрытии. Для надёжности — ⚙️ «Сохранить проект».</div>
   </details>
 </main>
+<div id="fab"><button id="fPlay" title="Слушать всё">▶</button><button id="fStop" title="Стоп" disabled>■</button></div>
 <div class="hidden-media" id="media"><video id="live" muted playsinline autoplay></video></div>
 
 <script>
@@ -192,25 +232,44 @@ async function prepare(t) {
 }
 function dispose(t) { if (t.video) { URL.revokeObjectURL(t.video.src); t.video.remove(); } }
 
+let replacing = null;   // голос, который сейчас перезаписывается: его не слышно и не видно
+const heard = t => t.on && t.buffer && t !== replacing;
+
 function songLength() {
   let d = 0;
-  for (const t of tracks) if (t.on && t.buffer) d = Math.max(d, t.buffer.duration - offsetOf(t));
+  for (const t of tracks) if (heard(t)) d = Math.max(d, t.buffer.duration - offsetOf(t));
   return d;
 }
 
 // ---------- воспроизведение ----------
-let play = null;   // {t0, srcs}
-function startTracks(t0) {
+let play = null;   // {t0, from, pick, srcs}
+// Все включённые голоса (или только pick) с места from секунд; metro — метроном в наушники
+function startTracks(t0, from = 0, pick = () => true, metro = false) {
   const c = ac(), srcs = [];
   for (const t of tracks) {
-    if (!t.on || !t.buffer) continue;
+    if (!heard(t) || !pick(t)) continue;
+    const pos = offsetOf(t) + from;
+    if (pos >= t.buffer.duration) continue;
     const g = c.createGain(); g.gain.value = t.vol; g.connect(master);
     const s = c.createBufferSource(); s.buffer = t.buffer; s.connect(g);
-    const off = offsetOf(t);
-    if (off >= 0) s.start(t0, Math.min(off, t.buffer.duration)); else s.start(t0 - off, 0);
+    if (pos >= 0) s.start(t0, pos); else s.start(t0 - pos, 0);
     srcs.push(s);
   }
-  play = { t0, srcs };
+  if (metro && $('#metOn').checked) srcs.push(startMetronome(t0, from));
+  play = { t0, from, pick, srcs };
+}
+// Щелчки такта (первая доля выше) одним зацикленным кусочком — точно по времени.
+// Идёт мимо master, поэтому в готовое видео не попадает.
+function startMetronome(t0, from) {
+  const c = ac(), sr = c.sampleRate, beat = 60 / Math.min(240, Math.max(30, +$('#bpm').value || 80));
+  const buf = c.createBuffer(1, Math.round(sr * beat * 4), sr), ch = buf.getChannelData(0);
+  for (let b = 0; b < 4; b++) {
+    const f = b ? 1000 : 1600, o = Math.round(b * beat * sr);
+    for (let i = 0; i < sr * 0.03 && o + i < ch.length; i++) ch[o + i] = 0.5 * Math.sin(2 * Math.PI * f * i / sr) * Math.exp(-i / (sr * 0.008));
+  }
+  const s = c.createBufferSource(); s.buffer = buf; s.loop = true; s.connect(c.destination);
+  s.start(t0, from % buf.duration);
+  return s;
 }
 function stopTracks() {
   if (play) for (const s of play.srcs) { try { s.stop(); } catch (e) {} }
@@ -220,6 +279,7 @@ function stopTracks() {
 function syncVideos(T) {
   for (const t of tracks) {
     if (!t.video || !t.on) continue;
+    if (!play.pick(t)) { if (!t.video.paused) t.video.pause(); continue; }
     const v = t.video, want = T + offsetOf(t);
     if (want < 0 || want > t.buffer.duration) { if (!v.paused) v.pause(); continue; }
     if (v.paused) { v.currentTime = want; v.play().catch(() => {}); }
@@ -258,9 +318,13 @@ function drawCover(v, x, y, w, h) {
 }
 function frame() { draw(); requestAnimationFrame(frame); }
 function draw() {
-  if (play) syncVideos(ac().currentTime - play.t0);
+  if (play) {
+    const T = ac().currentTime - play.t0 + play.from;
+    syncVideos(T);
+    if (state === 'play' && T >= 0) { $('#pos').value = T; $('#posV').textContent = mmss(T); drawWaves(T); }
+  }
   g.fillStyle = '#2b2520'; g.fillRect(0, 0, W, H);
-  const vids = tracks.filter(t => t.video && t.on).map(t => t.video);
+  const vids = tracks.filter(t => t.video && t.on && t !== replacing).map(t => t.video);
   const showLive = cam && state !== 'export' && state !== 'play' && vids.length < MAX_TRACKS;
   const all = showLive ? [...vids, $('#live')] : vids;
   const rects = layout(all.length);
@@ -286,8 +350,9 @@ function draw() {
 // ---------- интерфейс ----------
 function msg(t) { $('#msg').textContent = t || ''; }
 function busy(b) {
-  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt']) $(id).disabled = b;
+  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bLoadProj']) $(id).disabled = b;
   $('#bStop').disabled = !b;
+  $('#fPlay').disabled = b; $('#fStop').disabled = !b;
   document.querySelectorAll('#list button, #list input').forEach(e => e.disabled = b);
 }
 function renderList() {
@@ -297,9 +362,11 @@ function renderList() {
     d.innerHTML = `
       <input type="checkbox" ${t.on ? 'checked' : ''} title="включён">
       <span class="name" title="нажмите, чтобы переименовать"></span>
-      <button title="удалить">✕</button>
+      <span class="btns"><button class="solo" title="послушать только этот">🎧</button>${t.kind === 'video' ? '<button class="redo" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del" title="удалить">✕</button></span>
       <label>громкость <input class="vol" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
-      <label>сдвиг <input class="fine" type="range" min="-300" max="300" step="10" value="${t.fine}"> <span>${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>`;
+      <label>сдвиг <input class="fine" type="range" min="-300" max="300" step="10" value="${t.fine}"> <span>${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
+      <canvas class="wave" height="56"></canvas>`;
+    t.wave = d.querySelector('.wave');
     const nm = d.querySelector('.name');
     nm.textContent = (t.kind === 'audio' ? '🎵 ' : '') + t.name + ' ✎';
     nm.onclick = () => {
@@ -308,10 +375,13 @@ function renderList() {
     };
     const chk = d.querySelector('input[type=checkbox]');
     chk.onchange = () => { t.on = chk.checked; save(t); };
-    d.querySelector('button').onclick = async () => {
+    d.querySelector('.del').onclick = async () => {
       if (!confirm(`Удалить «${t.name}»?`)) return;
       dispose(t); tracks = tracks.filter(x => x !== t); await DB.del(t.id); renderList();
     };
+    d.querySelector('.solo').onclick = () => listen(x => x === t, `Играет только «${t.name}»…`);
+    const redo = d.querySelector('.redo');
+    if (redo) redo.onclick = () => { if (confirm(`Перезаписать «${t.name}»? Старая запись заменится новой.`)) recordVoice(t); };
     // В память телефона — только когда палец отпущен (change): сохраняется всё видео целиком
     const vol = d.querySelector('.vol');
     vol.oninput = () => { t.vol = +vol.value; };
@@ -320,11 +390,49 @@ function renderList() {
     fine.oninput = () => {
       t.fine = +fine.value; fine.nextElementSibling.textContent = (t.fine > 0 ? '+' : '') + t.fine + ' мс';
       if (t.video) t.video.currentTime = Math.max(0, offsetOf(t));
+      drawWaves();
     };
     fine.onchange = () => save(t);
     box.appendChild(d);
+    t.wave.width = Math.round(t.wave.clientWidth * (window.devicePixelRatio || 1));
+    t.wave.height = Math.round(56 * (window.devicePixelRatio || 1));
   });
+  $('#pos').max = Math.max(1, songLength());
+  drawWaves();
 }
+
+// ---------- волны голосов: один и тот же отрезок песни у всех, чтобы вступления стояли в линию ----------
+const SPAN = 3, PEAK_STEP = 0.005;   // окно 3 с, точность 5 мс
+function peaksOf(t) {
+  if (t.peaks) return t.peaks;
+  const d = t.buffer.getChannelData(0), n = Math.round(t.buffer.sampleRate * PEAK_STEP), p = new Float32Array(Math.ceil(d.length / n));
+  let top = 1e-6;
+  for (let i = 0; i < p.length; i++) {
+    let m = 0; for (let j = i * n, e = Math.min(d.length, j + n); j < e; j++) { const a = Math.abs(d[j]); if (a > m) m = a; }
+    p[i] = m; if (m > top) top = m;
+  }
+  for (let i = 0; i < p.length; i++) p[i] /= top;   // каждый голос — в полную высоту, тихие тоже видно
+  return t.peaks = p;
+}
+function drawWaves(T) {
+  if (T === undefined) T = +$('#pos').value || 0;
+  const start = Math.max(0, T - 1);   // красная линия — на трети окна
+  for (const t of tracks) {
+    const cv = t.wave; if (!cv || !t.buffer || !cv.width) continue;
+    const w = cv.width, h = cv.height, x = cv.getContext('2d'), p = peaksOf(t), off = offsetOf(t);
+    x.fillStyle = '#f3ece0'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#e3d9c8';   // сетка через полсекунды
+    for (let s = Math.ceil(start * 2) / 2; s < start + SPAN; s += 0.5) x.fillRect(Math.round((s - start) / SPAN * w), 0, 1, h);
+    x.fillStyle = t.on ? '#5d7b4f' : '#b8ad9c';
+    for (let px = 0; px < w; px++) {
+      const i = Math.floor((start + px / w * SPAN + off) / PEAK_STEP);
+      if (i < 0 || i >= p.length) continue;
+      const a = p[i] * (h / 2 - 2); x.fillRect(px, h / 2 - a, 1, Math.max(1, a * 2));
+    }
+    x.fillStyle = '#e5402f'; x.fillRect(Math.round((T - start) / SPAN * w), 0, 2, h);
+  }
+}
+function mmss(s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function nextName() {
   let n = 1; while (tracks.some(t => t.name === 'Голос ' + n)) n++; return 'Голос ' + n;
 }
@@ -368,50 +476,80 @@ async function keepAwake(on) {
   try { if (on) wake = await navigator.wakeLock.request('screen'); else if (wake) { await wake.release(); wake = null; } } catch (e) {}
 }
 
-$('#bRec').onclick = async () => {
-  if (tracks.filter(t => t.kind === 'video').length >= MAX_TRACKS) return msg('Больше 9 голосов не поместится.');
+// Новый голос, или target — перезаписать этот голос на его месте (имя, громкость и порядок остаются)
+let askedPhones = false;
+async function recordVoice(target) {
+  if (!target && tracks.filter(t => t.kind === 'video').length >= MAX_TRACKS) return msg('Больше 9 голосов не поместится.');
   try { ac(); await getCam(); } catch (e) { return msg('Нет доступа к камере/микрофону: ' + e.message); }
+  if (!askedPhones && tracks.some(t => heard(t) && t !== target)) {
+    if (!confirm('Наушники вставлены? Без них прошлые голоса попадут в новую запись.')) return;
+    askedPhones = true;
+  }
+  const lv = $('#live');
+  const tip = lv.videoWidth > lv.videoHeight && H > W ? ' Совет: держите телефон вертикально.' : '';
+  replacing = target || null;
   busy(true); keepAwake(true);
   state = 'countdown';
-  for (countdown = 3; countdown > 0; countdown--) { msg('Приготовились…'); await new Promise(r => setTimeout(r, 1000)); if (state !== 'countdown') break; }
-  if (state !== 'countdown') { busy(false); keepAwake(false); return msg(''); }
+  for (countdown = 3; countdown > 0; countdown--) {
+    msg((target ? `Перезапись «${target.name}». ` : '') + 'Приготовились…' + tip);
+    await new Promise(r => setTimeout(r, 1000)); if (state !== 'countdown') break;
+  }
+  if (state !== 'countdown') { replacing = null; busy(false); keepAwake(false); return msg(''); }
   state = 'rec'; msg('Пойте! Остановится само, когда кончится песня.');
   const len = songLength();
   if (!len) msg('Пойте! Когда закончите — «■ Стоп».');
   let res = null, t = null;
-  try { res = await recordStream(cam, MIME, 5000000, PRE, t0 => startTracks(t0), len ? len + 1.0 : 0); }
+  try { res = await recordStream(cam, MIME, 5000000, PRE, t0 => startTracks(t0, 0, undefined, true), len ? len + 1.0 : 0); }
   catch (e) { msg('Запись не получилась: ' + e.message); }
-  stopTracks(); state = 'idle';
+  stopTracks(); state = 'idle'; replacing = null;
   if (res) {
     msg('Обрабатываю запись…');
     try {
-      t = await prepare({ id: Date.now() + '', kind: 'video', name: nextName(), blob: new Blob(res.chunks, { type: res.type }),
-                          base: PRE + getLat() / 1000, fine: 0, vol: 1, on: true });
-      tracks.push(t); renderList();
+      t = await prepare({ id: target ? target.id : Date.now() + '', kind: 'video', name: target ? target.name : nextName(),
+                          blob: new Blob(res.chunks, { type: res.type }), base: PRE + getLat() / 1000, fine: 0,
+                          vol: target ? target.vol : 1, on: true });
+      if (target) { tracks[tracks.indexOf(target)] = t; dispose(target); } else tracks.push(t);
+      renderList();
     } catch (e) { msg('Не получилось прочитать запись: ' + e.message); }
   }
   if (t) {
-    try { await save(t); msg('Записано: ' + t.name + '. Можно «▶ Слушать всё» или записать следующий.'); }
+    try { await save(t); msg((target ? 'Перезаписано: ' : 'Записано: ') + t.name + '. Можно «▶ Слушать всё» или записать следующий.'); }
     catch (e) { msg(`«${t.name}» записан, но НЕ сохранился в памяти телефона (мало места?) — пропадёт после закрытия. ${e.message}`); }
   }
   busy(false); keepAwake(false);
-};
+}
+$('#bRec').onclick = () => recordVoice(null);
 
 $('#bStop').onclick = () => {
   if (state === 'countdown') { state = 'idle'; return; }
   if (stopNow) stopNow();
-  else if (state === 'play') { stopTracks(); state = 'idle'; busy(false); msg(''); }
+  else if (state === 'play') endPlay(false);
 };
 
-$('#bPlay').onclick = () => {
+// Слушать с места ползунка «с места»: всё или только pick
+function listen(pick, label) {
   const len = songLength(); if (!len) return msg('Пока нечего слушать.');
-  const c = ac(); busy(true); state = 'play'; msg('Играет…');
-  startTracks(c.currentTime + 0.1);
+  let from = +$('#pos').value || 0;
+  if (from >= len - 0.5) from = 0;
+  const c = ac(); busy(true); state = 'play'; msg(label);
+  startTracks(c.currentTime + 0.1, from, pick, true);
   const my = play;
-  setTimeout(() => { if (play === my) { stopTracks(); state = 'idle'; busy(false); msg(''); } }, (len + 0.3) * 1000);
-};
+  setTimeout(() => { if (play === my) endPlay(true); }, (len - from + 0.3) * 1000);
+}
+function endPlay(toStart) {
+  stopTracks(); state = 'idle'; busy(false); msg('');
+  if (toStart) { $('#pos').value = 0; $('#posV').textContent = '0:00'; }   // по «Стоп» — остаёмся на месте
+}
+$('#bPlay').onclick = () => listen(undefined, 'Играет…');
+$('#pos').oninput = () => { $('#posV').textContent = mmss(+$('#pos').value); drawWaves(); };
+// Плавающие ▶ / ■ — нажимают главные кнопки, чтобы не листать страницу к ним
+$('#fPlay').onclick = () => $('#bPlay').click();
+$('#fStop').onclick = () => $('#bStop').click();
+window.addEventListener('resize', () => renderList());
+window.addEventListener('beforeunload', e => {
+  if (['countdown', 'rec', 'export', 'cal'].includes(state)) { e.preventDefault(); e.returnValue = ''; }
+});
 
-let lastUrl = null;
 const TR = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',
              у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
 function latin(s) {
@@ -439,21 +577,81 @@ $('#bExport').onclick = async () => {
   if (!res) return msg('Видео не сохранилось. ' + why);
   const { chunks, type } = res;
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
-  const d = new Date(), p = n => String(n).padStart(2, '0');
   // Для «Отправить» Android хочет латинское имя и тип без кодеков (video/mp4)
-  const name = `${latin($('#title').value) || 'hor'}_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}.${ext}`;
-  const file = new File(chunks, name, { type: type.split(';')[0] });
-  if (lastUrl) URL.revokeObjectURL(lastUrl);   // прошлое готовое видео больше не держим в памяти
-  const a = document.createElement('a'); a.href = lastUrl = URL.createObjectURL(file); a.download = name; a.textContent = '⬇ Скачать ' + name;
-  $('#out').appendChild(a);
+  offerFile($('#out'), new File(chunks, fileName('', ext), { type: type.split(';')[0] }), msg);
+  msg('Видео готово.');
+};
+
+function fileName(tag, ext) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${latin($('#title').value) || 'hor'}${tag}_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}.${ext}`;
+}
+// Ссылка «Скачать» и кнопка «Отправить» в box; прошлый файл в этом box освобождаем из памяти
+function offerFile(box, file, report) {
+  if (box.dataset.url) URL.revokeObjectURL(box.dataset.url);
+  box.innerHTML = '';
+  const a = document.createElement('a'); a.href = box.dataset.url = URL.createObjectURL(file); a.download = file.name;
+  a.textContent = '⬇ Скачать ' + file.name;
+  box.appendChild(a);
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     const b = document.createElement('button'); b.textContent = '📤 Отправить (Telegram и др.)'; b.style.marginTop = '8px';
     b.onclick = () => navigator.share({ files: [file] }).catch(e => {
-      if (e.name !== 'AbortError') msg('Не отправилось: ' + e.name + ' ' + e.message + '. Скачайте файл и отправьте из Telegram.');
+      if (e.name !== 'AbortError') report('Не отправилось: ' + e.name + ' ' + e.message + '. Скачайте файл и отправьте из Telegram.');
     });
-    $('#out').appendChild(b);
+    box.appendChild(b);
   }
-  msg('Видео готово.');
+}
+
+// ---------- проект одним файлом: строка-метка, строка JSON с описанием, потом подряд все записи ----------
+const PROJ_MAGIC = 'HORPROJ1\n';
+$('#bSaveProj').onclick = () => {
+  if (!tracks.length) return msg('Пока нечего сохранять.');
+  const head = JSON.stringify({
+    app: 'hor', v: 1, lat: getLat(), fmt: $('#fmt').value, title: $('#title').value, notes: $('#notes').value,
+    bpm: +$('#bpm').value, tracks: tracks.map(t => ({ id: t.id, kind: t.kind, name: t.name, base: t.base, fine: t.fine,
+                                                      vol: t.vol, on: t.on, type: t.blob.type, size: t.blob.size })),
+  });
+  const file = new File([PROJ_MAGIC, head, '\n', ...tracks.map(t => t.blob)], fileName('_proekt', 'horproj'), { type: 'application/octet-stream' });
+  offerFile($('#projOut'), file, msg);
+  msg(`Проект готов (${Math.round(file.size / 1048576)} МБ) — скачайте его, ссылка в ⚙️ Настройках.`);
+};
+$('#bLoadProj').onclick = () => $('#fProj').click();
+$('#fProj').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const text = await f.slice(0, 4000000).text();
+    if (!text.startsWith(PROJ_MAGIC)) throw new Error('это не файл проекта');
+    const nl = text.indexOf('\n', PROJ_MAGIC.length);
+    const head = JSON.parse(text.slice(PROJ_MAGIC.length, nl));
+    if (tracks.length && !confirm(`Заменить текущие голоса (${tracks.length}) голосами из файла?`)) return;
+    busy(true); msg('Загружаю проект…');
+    let p = new TextEncoder().encode(text.slice(0, nl + 1)).length;   // смещение в байтах, не в буквах
+    const loaded = [];
+    for (const m of head.tracks) {
+      loaded.push(await prepare({ ...m, blob: new Blob([f.slice(p, p + m.size)], { type: m.type }) }));
+      p += m.size;
+    }
+    tracks.forEach(dispose); tracks = loaded;
+    await DB.clear(); for (const t of tracks) await save(t);
+    if (head.lat != null) setLat(head.lat);
+    if (head.fmt) setFormat(head.fmt);
+    if (head.bpm) { $('#bpm').value = head.bpm; $('#bpm').onchange(); }
+    $('#title').value = head.title || ''; $('#title').onchange({ target: $('#title') });
+    if (head.notes && !$('#notes').value.includes(head.notes)) { $('#notes').value = (($('#notes').value ? $('#notes').value + '\n\n' : '') + head.notes); $('#notes').oninput(); }
+    renderList(); msg('Проект загружен: ' + tracks.length + ' дорожек.');
+  } catch (err) { msg('Проект не загрузился: ' + err.message); }
+  busy(false);
+};
+
+// ---------- заметки и идеи ----------
+$('#bSendNotes').onclick = () => {
+  const text = $('#notes').value.trim();
+  if (!text) return $('#notesMsg').textContent = 'Заметки пустые.';
+  const copy = () => navigator.clipboard.writeText(text)
+    .then(() => $('#notesMsg').textContent = 'Скопировано — вставьте в Telegram.')
+    .catch(() => $('#notesMsg').textContent = 'Не получилось — выделите текст и скопируйте вручную.');
+  if (navigator.share) navigator.share({ title: 'Сама себе хор — заметки', text }).catch(e => { if (e.name !== 'AbortError') copy(); });
+  else copy();
 };
 
 // ---------- подстройка задержки ----------
@@ -510,6 +708,16 @@ $('#bClear').onclick = async () => {
   $('#fmt').onchange = e => setFormat(e.target.value);
   $('#title').value = title;
   $('#title').onchange = e => { try { localStorage.setItem('choir.title', e.target.value); } catch (er) {} };
+  // Метроном и заметки — тоже в памяти браузера
+  const keep = (key, val) => { try { localStorage.setItem(key, val); } catch (e) {} };
+  try {
+    $('#bpm').value = localStorage.getItem('choir.bpm') || 80;
+    $('#metOn').checked = localStorage.getItem('choir.met') === '1';
+    $('#notes').value = localStorage.getItem('choir.notes') || '';
+  } catch (e) {}
+  $('#bpm').onchange = () => keep('choir.bpm', $('#bpm').value);
+  $('#metOn').onchange = () => keep('choir.met', $('#metOn').checked ? '1' : '0');
+  $('#notes').oninput = () => keep('choir.notes', $('#notes').value);
   if (!window.MediaRecorder || !navigator.mediaDevices) { msg('Этот браузер не умеет записывать. Откройте в Chrome.'); busy(true); $('#bStop').disabled = true; return; }
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
   requestAnimationFrame(frame);
