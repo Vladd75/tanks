@@ -38,12 +38,14 @@
   textarea { width:100%; font:inherit; padding:10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink); }
   .track .name { cursor:pointer; }
   .track .btns { display:flex; gap:6px; }
+  button.tiny { flex:none; min-width:48px; padding:8px 10px; }
+  .track .wave { touch-action:pan-y; cursor:ew-resize; }   /* вверх-вниз — листать страницу, вбок — перемотка */
   .track .nudge { flex:none; min-height:36px; min-width:36px; padding:4px 10px; font-size:20px; line-height:1; }
   .track .wave { grid-column:1 / -1; width:100%; height:56px; border-radius:8px; display:block; }
   #fab { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; z-index:10; }
   #fab button { width:58px; height:58px; min-height:0; border-radius:50%; padding:0; font-size:24px; flex:none;
                 background:rgba(93,123,79,.82); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.25); }
-  #fab #fStop { background:rgba(58,49,40,.75); }
+  #fab #fStop, #fab #fHome { background:rgba(58,49,40,.75); }
   #fab button:disabled { opacity:.3; }
   main { padding-bottom:150px; }
 </style>
@@ -67,8 +69,9 @@
   <div class="row">
     <button id="bPlay" class="go">▶ Слушать всё</button>
     <button id="bExport">🎬 Сохранить видео</button>
+    <button id="bSaveProj2" class="tiny" title="Сохранить проект файлом (резервная копия)">💾</button>
   </div>
-  <label class="hint pos">с места <input id="pos" type="range" min="0" max="1" step="0.1" value="0"> <span id="posV">0:00</span></label>
+  <label class="hint pos"><button id="bHome" class="tiny" title="На начало">⏮</button> с места <input id="pos" type="range" min="0" max="1" step="0.01" value="0"> <span id="posV">0:00</span></label>
   <div class="row">
     <select id="fmt" title="Формат видео">
       <option value="story">Stories / Reels — 9:16 (1080×1920)</option>
@@ -106,7 +109,7 @@
     <div class="card">
       <button id="bClear">🗑 Начать заново (удалить все голоса)</button>
     </div>
-    <div class="hint" style="text-align:center">Версия 1.7 · 04.11.2026</div>
+    <div class="hint" style="text-align:center">Версия 1.8 · 04.11.2026</div>
   </details>
 
   <details>
@@ -127,7 +130,8 @@
       <li>«● Записать голос» → отсчёт 3-2-1 → петь первый голос → «■ Стоп».</li>
       <li>Снова «● Записать голос»: прошлые голоса звучат в наушниках, поёте следующий. Запись остановится сама, когда песня кончится.</li>
       <li>«▶ Слушать всё» — проверить. Ползунок «с места» — слушать с середины.</li>
-      <li>У каждого голоса: 🎧 — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
+      <li>У каждого голоса: ▶ — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
+      <li>⏮ — на начало. По волне голоса можно водить пальцем вбок (перемотка) или коснуться — встать в это место. 💾 — сохранить проект файлом.</li>
       <li>Голос раньше/позже остальных — ползунок «сдвиг» у этого голоса (до 2 секунд), а «−» / «+» рядом — точно, по 10 мс.
         Если отстают все новые голоса — один раз сделайте ⚙️ «Подстроить автоматически». Под каждым голосом — его звуковая волна
         (3 секунды вокруг красной линии): поставьте «с места» туда, где все вступают, и двигайте «сдвиг», пока начала
@@ -137,7 +141,7 @@
     <div class="hint">Всё хранится в этом браузере на этом телефоне и не пропадает при закрытии. Для надёжности — ⚙️ «Сохранить проект».</div>
   </details>
 </main>
-<div id="fab"><button id="fPlay" title="Слушать всё">▶</button><button id="fStop" title="Стоп" disabled>■</button></div>
+<div id="fab"><button id="fHome" title="На начало">⏮</button><button id="fPlay" title="Слушать всё">▶</button><button id="fStop" title="Стоп" disabled>■</button></div>
 <div class="hidden-media" id="media"><video id="live" muted playsinline autoplay></video></div>
 
 <script>
@@ -352,7 +356,7 @@ function draw() {
 // ---------- интерфейс ----------
 function msg(t) { $('#msg').textContent = t || ''; }
 function busy(b) {
-  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bLoadProj']) $(id).disabled = b;
+  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj']) $(id).disabled = b;
   $('#bStop').disabled = !b;
   $('#fPlay').disabled = b; $('#fStop').disabled = !b;
   document.querySelectorAll('#list button, #list input').forEach(e => e.disabled = b);
@@ -364,11 +368,12 @@ function renderList() {
     d.innerHTML = `
       <input type="checkbox" ${t.on ? 'checked' : ''} title="включён">
       <span class="name" title="нажмите, чтобы переименовать"></span>
-      <span class="btns"><button class="solo" title="послушать только этот">🎧</button>${t.kind === 'video' ? '<button class="redo" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del" title="удалить">✕</button></span>
+      <span class="btns"><button class="solo" title="послушать только этот голос">▶</button>${t.kind === 'video' ? '<button class="redo" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del" title="удалить">✕</button></span>
       <label>громкость <input class="vol" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
       <label>сдвиг <button class="nudge" data-d="-10">−</button><input class="fine" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge" data-d="10">+</button> <span class="fineV">${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
       <canvas class="wave" height="56"></canvas>`;
     t.wave = d.querySelector('.wave');
+    scrubber(t.wave);
     const nm = d.querySelector('.name');
     nm.textContent = (t.kind === 'audio' ? '🎵 ' : '') + t.name + ' ✎';
     nm.onclick = () => {
@@ -548,6 +553,27 @@ function endPlay(toStart) {
 }
 $('#bPlay').onclick = () => listen(undefined, 'Играет…');
 $('#pos').oninput = () => { $('#posV').textContent = mmss(+$('#pos').value); drawWaves(); };
+function setPos(T) {
+  $('#pos').value = Math.max(0, Math.min(+$('#pos').max, T)); $('#pos').oninput();
+}
+$('#bHome').onclick = $('#fHome').onclick = () => { if (state === 'play') endPlay(false); setPos(0); };
+// Палец по волне: касание — встать в это место, ведём вбок — волна едет за пальцем, как лента
+function scrubber(cv) {
+  let x0 = null, T0 = 0, moved = false;
+  cv.onpointerdown = e => { if (state !== 'idle') return; x0 = e.clientX; T0 = +$('#pos').value; moved = false; cv.setPointerCapture(e.pointerId); };
+  cv.onpointermove = e => {
+    if (x0 === null) return;
+    const dx = e.clientX - x0;
+    if (Math.abs(dx) > 4) moved = true;
+    if (moved) setPos(T0 - dx / cv.clientWidth * SPAN);
+  };
+  cv.onpointerup = e => {
+    if (x0 === null) return;
+    if (!moved) setPos(Math.max(0, T0 - 1) + (e.clientX - cv.getBoundingClientRect().left) / cv.clientWidth * SPAN);
+    x0 = null;
+  };
+  cv.onpointercancel = () => { x0 = null; };
+}
 // Плавающие ▶ / ■ — нажимают главные кнопки, чтобы не листать страницу к ним
 $('#fPlay').onclick = () => $('#bPlay').click();
 $('#fStop').onclick = () => $('#bStop').click();
@@ -610,7 +636,7 @@ function offerFile(box, file, report) {
 
 // ---------- проект одним файлом: строка-метка, строка JSON с описанием, потом подряд все записи ----------
 const PROJ_MAGIC = 'HORPROJ1\n';
-$('#bSaveProj').onclick = () => {
+function saveProject(box, where) {
   if (!tracks.length) return msg('Пока нечего сохранять.');
   const head = JSON.stringify({
     app: 'hor', v: 1, lat: getLat(), fmt: $('#fmt').value, title: $('#title').value, notes: $('#notes').value,
@@ -618,9 +644,11 @@ $('#bSaveProj').onclick = () => {
                                                       vol: t.vol, on: t.on, type: t.blob.type, size: t.blob.size })),
   });
   const file = new File([PROJ_MAGIC, head, '\n', ...tracks.map(t => t.blob)], fileName('_proekt', 'horproj'), { type: 'application/octet-stream' });
-  offerFile($('#projOut'), file, msg);
-  msg(`Проект готов (${Math.round(file.size / 1048576)} МБ) — скачайте его, ссылка в ⚙️ Настройках.`);
-};
+  offerFile(box, file, msg);
+  msg(`Проект готов (${Math.round(file.size / 1048576)} МБ) — скачайте его, ${where}.`);
+}
+$('#bSaveProj').onclick = () => saveProject($('#projOut'), 'ссылка в ⚙️ Настройках');
+$('#bSaveProj2').onclick = () => saveProject($('#out'), 'ссылка под кнопками');
 $('#bLoadProj').onclick = () => $('#fProj').click();
 $('#fProj').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
