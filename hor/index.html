@@ -48,7 +48,8 @@
   #fab #fStop, #fab #fHome { background:rgba(58,49,40,.75); }
   #fab #fUndo { background:rgba(181,82,59,.8); }
   #fab.away { display:none; }   /* основные кнопки на экране — круглые не нужны и не закрывают их */
-  h1 .ver { font-size:12px; font-weight:400; color:#b9a88c; white-space:nowrap; vertical-align:middle; }
+  h1 { white-space:nowrap; }
+  h1 .ver { font-size:12px; font-weight:400; color:#b9a88c; margin-left:6px; }
   #selSlot .track { border:2px solid #e2b54a; margin-top:8px; }
   .track.locked { border-color:#c9b48a; background:#fbf6ea; }
   .track .lock { flex:none; }
@@ -58,7 +59,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver">версия 2.0 · 04.11.2026</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="04.11.2026">в. 2.1</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
