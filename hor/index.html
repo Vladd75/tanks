@@ -62,7 +62,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.5</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.6</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -598,14 +598,19 @@ function recordStream(stream, mime, bps, lead, onPlay, stopAfter) {
     rec.ondataavailable = e => e.data.size && chunks.push(e.data);
     rec.onerror = e => end(new Error((e.error && e.error.message) || 'ошибка записи'));
     rec.onstop = () => end();
-    rec.onstart = () => {
-      if (done) return;   // опоздавший старт после «не запустилась» — иначе песня заиграет второй раз (эхо)
-      clearTimeout(guard);
+    let began = false;
+    const started = () => {
+      if (done || began) return;   // опоздавший старт после «не запустилась» — иначе песня заиграет второй раз (эхо)
+      began = true; clearTimeout(guard);
       onPlay(ac().currentTime + lead);
       if (stopAfter) timer = setTimeout(finish, (lead + stopAfter) * 1000);
       stopNow = () => { clearTimeout(timer); finish(); };
     };
-    guard = setTimeout(() => end(new Error('запись не запустилась')), 8000);   // большой кадр кодировщик планшета готовит долго
+    rec.onstart = started;
+    // Android присылает onstart, только когда накопилось что записать. Рекордер уже «recording» — значит, работает,
+    // начинаем и без onstart (не пишется — будет «пустая запись»). Иначе ждём ещё: большой кадр кодировщик готовит долго.
+    guard = setTimeout(() => rec.state === 'recording' ? started()
+                              : guard = setTimeout(() => end(new Error('запись не запустилась')), 5000), 2000);
     try { rec.start(1000); } catch (e) { end(e); }
   });
 }
@@ -820,6 +825,9 @@ $('#bExport').onclick = async () => {
   msg(`Собираю видео — песня проиграется целиком (${Math.ceil(len)} с). Не выключайте экран.`);
   $('#out').innerHTML = '';
   const dest = c.createMediaStreamDestination(); limiter.connect(dest);
+  // Песня начнётся только после старта записи, а планшет не стартует запись, пока звук пустой. Неслышный «фон»
+  // (−80 дБ) с первой секунды разрывает этот круг.
+  const hum = c.createConstantSource(); hum.offset.value = 1e-4; hum.connect(dest); hum.start();
   // mp4 (H.264) — его берут Instagram и Telegram, и планшет кодирует его видеочипом. Большой вертикальный кадр
   // встроенный кодировщик может не взять — тогда тот же mp4 поменьше. webm (кодирует процессор, тормозит) — в самом конце.
   const fmtKey = $('#fmt').value, [FW, FH] = FORMATS[fmtKey], big = Math.max(FW, FH);
@@ -840,7 +848,7 @@ $('#bExport').onclick = async () => {
     if (res || state !== 'export') break;
   }
   stopNow = null; clearInterval(tick);
-  limiter.disconnect(dest); dest.stream.getTracks().forEach(t => t.stop());
+  hum.stop(); limiter.disconnect(dest); dest.stream.getTracks().forEach(t => t.stop());
   setFormat(fmtKey);
   state = 'idle'; busy(false); keepAwake(false);
   if (!res) return msg('Видео не сохранилось. ' + why);
