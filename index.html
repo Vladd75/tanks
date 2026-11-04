@@ -53,6 +53,9 @@
   .wheelBox { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; text-align: left; cursor: pointer; }
   .wheelBox canvas { width: 48px; height: 48px; image-rendering: pixelated; flex: none; }
   .wheelBox input { width: 26px; height: 26px; flex: none; }
+  .lvlGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; max-height: 38vh; overflow-y: auto; margin: 8px 0 2px; padding: 2px; }
+  .card .lvlGrid button { margin: 0; padding: 8px 0; font-size: 16px; border-radius: 9px; min-width: 0; }
+  .card .lvlGrid button.boss { background: #c4452b; color: #fff; }
   .ideaField { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 8px 10px; margin: 4px 0; border: 2px solid #c9b98a; border-radius: 10px;
     background: #fff; color: #222; resize: none; user-select: text; -webkit-user-select: text; touch-action: auto; }
   /* низкий экран — телефон, повёрнутый боком: всё мельче и плотнее */
@@ -361,7 +364,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const GAME_VERSION = 'Версия 1.2 · 05.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
+const GAME_VERSION = 'Версия 1.3 · 05.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
 const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
@@ -449,12 +452,12 @@ const fnv = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^=
 const saveKey = () => (gameMode === 'hangar' ? SAVE_KEY + '_hangar' : SAVE_KEY) + (author ? '_author' : '');
 let compNote = false;
 function loadSave() {
-  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, medium: 0, heavy: 0 }; save.comp1 = true;
+  save.level = 0; save.coins = 0; save.hard = false; save.tokens = 0; save.tank = 'medium'; save.owned = { light: false, medium: true, heavy: false }; save.stars = { light: 0, medium: 0, heavy: 0 }; save.comp1 = true; save.beat = false;
   for (const u of SHOP) save.up[u.key] = 0;
   try {
     const d = JSON.parse(localStorage.getItem(saveKey()) || 'null');
     if (d && d.up) {
-      save.hard = !!d.hard; save.level = Math.max(0, Math.min(LEVELS.length - 1, d.level | 0)); save.coins = Math.max(0, d.coins | 0);
+      save.hard = !!d.hard; save.beat = !!d.beat; save.level = Math.max(0, Math.min(LEVELS.length - 1, d.level | 0)); save.coins = Math.max(0, d.coins | 0);
       for (const u of SHOP) save.up[u.key] = Math.max(0, Math.min(u.costs.length, d.up[u.key] | 0));
       save.tokens = Math.max(0, d.tokens | 0);
       if (d.owned) for (const k in save.owned) save.owned[k] = k === 'medium' || !!d.owned[k];
@@ -473,9 +476,12 @@ function authorFill() {             // у автора всего вдоволь
 }
 function storeSave() {
   authorFill(); try { localStorage.setItem(saveKey(), JSON.stringify(save)); } catch (e) {} }
-function resetSave() { save.level = 0; save.coins = 0; for (const u of SHOP) save.up[u.key] = 0; storeSave(); }
+function resetSave() { save.level = 0; save.beat = false; save.coins = 0; for (const u of SHOP) save.up[u.key] = 0; storeSave(); }
 let levelCoins = 0;
-function earn(n) { if (duel) return 0; const v = Math.round(n * (1 + 0.25 * up('coins')) * (save.hard ? 1.25 : 1)); save.coins += v; levelCoins += v; return v; }
+// С 1.3: уровни, которые уже проходил, можно играть снова, но монет там в 4 раза меньше (replay ставится в startLevel).
+let replay = false;
+const isReplay = l => l < save.level || (save.beat && l === LEVELS.length - 1);
+function earn(n) { if (duel) return 0; const v = Math.round(n * (1 + 0.25 * up('coins')) * (save.hard ? 1.25 : 1) * (replay ? 0.25 : 1)); save.coins += v; levelCoins += v; return v; }
 let lastShooter = null;                  // чей снаряд сейчас попал — чтобы монеты второго игрока по сети уходили ему
 function credit(n) {
   const v = earn(n);
@@ -3049,8 +3055,19 @@ function askContinue() {
   state = 'ask';
   const go = () => beginGame(save.level);
   showOverlay('Продолжить?', '<p>Вы дошли до уровня ' + (save.level + 1) + '. Монет: <b>' + save.coins + '</b>.</p>',
-    [{ label: 'Продолжить: уровень ' + (save.level + 1), fn: go }, { label: 'Новая игра', cls: 'blue', fn: askReset }, { label: 'Назад', cls: 'gray', fn: modeMenu }], go);
+    [{ label: 'Продолжить: уровень ' + (save.level + 1), fn: go }].concat(save.level > 0 ? [{ label: 'Выбрать уровень', cls: 'blue', fn: pickLevel }] : [],
+      [{ label: 'Новая игра', cls: 'blue', fn: askReset }, { label: 'Назад', cls: 'gray', fn: modeMenu }]), go);
 }
+// Выбор уровня (с 1.3): любой, до которого уже дошёл; монеты и улучшения остаются, на пройденных монет в 4 раза меньше.
+function pickLevel() {
+  state = 'ask';
+  let h = '<p class="small">Начни с любого уровня, до которого дошёл. На уже пройденных монет <b>в 4 раза меньше</b>, на новых — как обычно. Улучшения и монеты остаются с тобой.</p><div class="lvlGrid">';
+  for (let i = 0; i <= save.level; i++) h += '<button class="lv' + (LEVELS[i].boss ? ' boss' : '') + '" data-l="' + i + '">' + (i + 1) + '</button>';
+  h += '</div>';
+  showOverlay('Какой уровень?', h, [{ label: 'Магазин', cls: 'blue', fn: () => openShop(pickLevel) }, { label: 'Назад', cls: 'gray', fn: askContinue }], askContinue);
+  document.querySelectorAll('#ovText .lv').forEach(b => b.addEventListener('click', () => beginGame(+b.dataset.l)));
+}
+
 function askReset() {
   state = 'ask';
   showOverlay('Начать заново?', '<p>Все монеты и купленные улучшения пропадут, игра начнётся с первого уровня.</p>',
@@ -3063,6 +3080,7 @@ function beginGame(from) {
 }
 function startLevel() {
   hideOverlay(); resetInput();
+  replay = isReplay(level);
   buildLevel(level);
   levelCoins = 0;
   calcRoboBoost();
@@ -3098,7 +3116,7 @@ function afterClear() {
   pickups = [];
   earn(50 + level * 5);                               // премия за пройденный уровень
   netPayGuest(50 + level * 5);                        // второму игроку по сети — его монеты и такая же премия
-  if (level + 1 < LEVELS.length) save.level = Math.max(save.level, level + 1);
+  if (level + 1 < LEVELS.length) save.level = Math.max(save.level, level + 1); else save.beat = true;
   storeSave(); SFX.win(); showWin();
 }
 function showOver() {
