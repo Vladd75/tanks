@@ -46,6 +46,9 @@
   #fab button { width:58px; height:58px; min-height:0; border-radius:50%; padding:0; font-size:24px; flex:none;
                 background:rgba(93,123,79,.82); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #fab #fStop, #fab #fHome { background:rgba(58,49,40,.75); }
+  #fab #fUndo { background:rgba(181,82,59,.8); }
+  .track.locked { border-color:#c9b48a; background:#fbf6ea; }
+  .track .lock { flex:none; }
   #fab button:disabled { opacity:.3; }
   main { padding-bottom:150px; }
 </style>
@@ -70,6 +73,7 @@
     <button id="bPlay" class="go">▶ Слушать всё</button>
     <button id="bExport">🎬 Сохранить видео</button>
     <button id="bSaveProj2" class="tiny" title="Сохранить проект файлом (резервная копия)">💾</button>
+    <button id="bUndo" class="tiny" title="Отменить последнее изменение" disabled>↶</button>
   </div>
   <label class="hint pos"><button id="bHome" class="tiny" title="На начало">⏮</button> с места <input id="pos" type="range" min="0" max="1" step="0.01" value="0"> <span id="posV">0:00</span></label>
   <div class="row">
@@ -109,7 +113,7 @@
     <div class="card">
       <button id="bClear">🗑 Начать заново (удалить все голоса)</button>
     </div>
-    <div class="hint" style="text-align:center">Версия 1.8 · 04.11.2026</div>
+    <div class="hint" style="text-align:center">Версия 1.9 · 04.11.2026</div>
   </details>
 
   <details>
@@ -131,6 +135,8 @@
       <li>Снова «● Записать голос»: прошлые голоса звучат в наушниках, поёте следующий. Запись остановится сама, когда песня кончится.</li>
       <li>«▶ Слушать всё» — проверить. Ползунок «с места» — слушать с середины.</li>
       <li>У каждого голоса: ▶ — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
+      <li>🔓/🔒 — замок у голоса: закрыт — его громкость, сдвиг, перезапись и удаление не трогаются случайно.
+        ↶ — отменить последнее (можно несколько раз подряд): сдвиг, громкость, удаление, перезапись. Работает, пока страница открыта.</li>
       <li>⏮ — на начало. По волне голоса можно водить пальцем вбок (перемотка) или коснуться — встать в это место. 💾 — сохранить проект файлом.</li>
       <li>Голос раньше/позже остальных — ползунок «сдвиг» у этого голоса (до 2 секунд), а «−» / «+» рядом — точно, по 10 мс.
         Если отстают все новые голоса — один раз сделайте ⚙️ «Подстроить автоматически». Под каждым голосом — его звуковая волна
@@ -141,7 +147,7 @@
     <div class="hint">Всё хранится в этом браузере на этом телефоне и не пропадает при закрытии. Для надёжности — ⚙️ «Сохранить проект».</div>
   </details>
 </main>
-<div id="fab"><button id="fHome" title="На начало">⏮</button><button id="fPlay" title="Слушать всё">▶</button><button id="fStop" title="Стоп" disabled>■</button></div>
+<div id="fab"><button id="fUndo" title="Отменить" disabled>↶</button><button id="fHome" title="На начало">⏮</button><button id="fPlay" title="Слушать всё">▶</button><button id="fStop" title="Стоп" disabled>■</button></div>
 <div class="hidden-media" id="media"><video id="live" muted playsinline autoplay></video></div>
 
 <script>
@@ -222,7 +228,7 @@ function showLat() { $('#lat').value = getLat(); $('#latV').textContent = getLat
 // ---------- дорожки ----------
 let tracks = [];   // {id, kind:'video'|'audio', name, blob, base, fine, vol, on, buffer, video}
 const offsetOf = t => t.base + t.fine / 1000;   // сколько секунд пропустить в начале клипа
-function save(t) { return DB.put({ id: t.id, kind: t.kind, name: t.name, blob: t.blob, base: t.base, fine: t.fine, vol: t.vol, on: t.on }); }
+function save(t) { return DB.put({ id: t.id, kind: t.kind, name: t.name, blob: t.blob, base: t.base, fine: t.fine, vol: t.vol, on: t.on, locked: !!t.locked }); }
 
 async function prepare(t) {
   t.buffer = await ac().decodeAudioData(await t.blob.arrayBuffer());
@@ -359,51 +365,92 @@ function busy(b) {
   for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj']) $(id).disabled = b;
   $('#bStop').disabled = !b;
   $('#fPlay').disabled = b; $('#fStop').disabled = !b;
-  document.querySelectorAll('#list button, #list input').forEach(e => e.disabled = b);
+  // у голоса под замком настройки (класс lk) остаются выключенными
+  document.querySelectorAll('#list button, #list input').forEach(e => e.disabled = b || (e.classList.contains('lk') && e.closest('.track').classList.contains('locked')));
+  showUndo();
 }
+
+// ---------- отмена: стопка прошлых состояний (настройки голоса, удалённый голос, прошлый дубль) ----------
+const undoStack = [];
+const settingsOf = t => ({ fine: t.fine, vol: t.vol, on: t.on, name: t.name, locked: !!t.locked });
+function remember(u) { u.time = Date.now(); undoStack.push(u); if (undoStack.length > 40) undoStack.shift(); showUndo(); }
+// key — склеивать частые одинаковые шаги (нажатия −/+ подряд) в один
+function rememberSet(t, key) {
+  const top = undoStack[undoStack.length - 1];
+  if (key && top && top.type === 'set' && top.id === t.id && top.key === key && Date.now() - top.time < 2000) { top.time = Date.now(); return; }
+  remember({ type: 'set', id: t.id, key, before: settingsOf(t) });
+}
+function showUndo() { $('#bUndo').disabled = $('#fUndo').disabled = !undoStack.length || state !== 'idle'; }
+async function undo() {
+  const u = undoStack.pop(); if (!u) return;
+  try {
+    if (u.type === 'set') {
+      const t = tracks.find(x => x.id === u.id);
+      if (!t) msg('Этого голоса уже нет — отменять нечего.');
+      else { Object.assign(t, u.before); if (t.video) t.video.currentTime = Math.max(0, offsetOf(t)); await save(t); msg('Отменено: «' + t.name + '»'); }
+    } else if (u.type === 'del') {
+      const t = await prepare(u.t);
+      tracks.splice(Math.min(u.index, tracks.length), 0, t); await save(t); msg('Голос вернулся: «' + t.name + '»');
+    } else if (u.type === 'replace') {
+      const i = tracks.findIndex(x => x.id === u.old.id), old = await prepare(u.old);
+      if (i >= 0) { dispose(tracks[i]); tracks[i] = old; } else tracks.push(old);
+      await save(old); msg('Вернулся прошлый дубль: «' + old.name + '»');
+    }
+  } catch (e) { msg('Не получилось отменить: ' + e.message); }
+  renderList(); showUndo();
+}
+
 function renderList() {
   const box = $('#list'); box.innerHTML = '';
   tracks.forEach(t => {
-    const d = document.createElement('div'); d.className = 'card track';
+    const d = document.createElement('div'); d.className = 'card track' + (t.locked ? ' locked' : '');
     d.innerHTML = `
       <input type="checkbox" ${t.on ? 'checked' : ''} title="включён">
       <span class="name" title="нажмите, чтобы переименовать"></span>
-      <span class="btns"><button class="solo" title="послушать только этот голос">▶</button>${t.kind === 'video' ? '<button class="redo" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del" title="удалить">✕</button></span>
-      <label>громкость <input class="vol" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
-      <label>сдвиг <button class="nudge" data-d="-10">−</button><input class="fine" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge" data-d="10">+</button> <span class="fineV">${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
+      <span class="btns"><button class="lock" title="замок: защита от случайных изменений">${t.locked ? '🔒' : '🔓'}</button><button class="solo" title="послушать только этот голос">▶</button>${t.kind === 'video' ? '<button class="redo lk" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del lk" title="удалить">✕</button></span>
+      <label>громкость <input class="vol lk" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
+      <label>сдвиг <button class="nudge lk" data-d="-10">−</button><input class="fine lk" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge lk" data-d="10">+</button> <span class="fineV">${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
       <canvas class="wave" height="56"></canvas>`;
     t.wave = d.querySelector('.wave');
     scrubber(t.wave);
+    d.querySelector('.lock').onclick = () => { rememberSet(t); t.locked = !t.locked; save(t); renderList(); };
     const nm = d.querySelector('.name');
     nm.textContent = (t.kind === 'audio' ? '🎵 ' : '') + t.name + ' ✎';
     nm.onclick = () => {
       const s = prompt('Название', t.name);
-      if (s && s.trim()) { t.name = s.trim(); save(t); renderList(); }
+      if (s && s.trim()) { rememberSet(t); t.name = s.trim(); save(t); renderList(); }
     };
     const chk = d.querySelector('input[type=checkbox]');
-    chk.onchange = () => { t.on = chk.checked; save(t); };
+    chk.onchange = () => { rememberSet(t); t.on = chk.checked; save(t); };
     d.querySelector('.del').onclick = async () => {
-      if (!confirm(`Удалить «${t.name}»?`)) return;
+      if (!confirm(`Удалить «${t.name}»? (Можно вернуть кнопкой ↶ Отменить, пока страница открыта.)`)) return;
+      remember({ type: 'del', t, index: tracks.indexOf(t) });
       dispose(t); tracks = tracks.filter(x => x !== t); await DB.del(t.id); renderList();
     };
     d.querySelector('.solo').onclick = () => listen(x => x === t, `Играет только «${t.name}»…`);
     const redo = d.querySelector('.redo');
-    if (redo) redo.onclick = () => { if (confirm(`Перезаписать «${t.name}»? Старая запись заменится новой.`)) recordVoice(t); };
-    // В память телефона — только когда палец отпущен (change): сохраняется всё видео целиком
+    if (redo) redo.onclick = () => { if (confirm(`Перезаписать «${t.name}»? Прошлый дубль можно вернуть кнопкой ↶ Отменить.`)) recordVoice(t); };
+    // В память телефона — только когда палец отпущен (change): сохраняется всё видео целиком.
+    // Для отмены запоминаем состояние один раз — в начале движения ползунка.
+    let editing = false;
+    const startEdit = () => { if (!editing) { rememberSet(t); editing = true; } };
     const vol = d.querySelector('.vol');
-    vol.oninput = () => { t.vol = +vol.value; };
-    vol.onchange = () => save(t);
+    vol.oninput = () => { startEdit(); t.vol = +vol.value; };
+    vol.onchange = () => { editing = false; save(t); };
     const fine = d.querySelector('.fine');
-    fine.oninput = () => {
-      t.fine = +fine.value; d.querySelector('.fineV').textContent = (t.fine > 0 ? '+' : '') + t.fine + ' мс';
+    const showFine = () => {
+      d.querySelector('.fineV').textContent = (t.fine > 0 ? '+' : '') + t.fine + ' мс';
       if (t.video) t.video.currentTime = Math.max(0, offsetOf(t));
       drawWaves();
     };
-    fine.onchange = () => save(t);
+    fine.oninput = () => { startEdit(); t.fine = +fine.value; showFine(); };
+    fine.onchange = () => { editing = false; save(t); };
     // −/+ — точная подгонка по 10 мс, когда пальцем по длинной полоске не попасть
     d.querySelectorAll('.nudge').forEach(b => b.onclick = () => {
-      fine.value = Math.max(-2000, Math.min(2000, t.fine + +b.dataset.d)); fine.oninput(); save(t);
+      rememberSet(t, 'nudge');
+      t.fine = Math.max(-2000, Math.min(2000, t.fine + +b.dataset.d)); fine.value = t.fine; showFine(); save(t);
     });
+    d.querySelectorAll('.lk').forEach(e => e.disabled = !!t.locked);
     box.appendChild(d);
     t.wave.width = Math.round(t.wave.clientWidth * (window.devicePixelRatio || 1));
     t.wave.height = Math.round(56 * (window.devicePixelRatio || 1));
@@ -519,7 +566,7 @@ async function recordVoice(target) {
       t = await prepare({ id: target ? target.id : Date.now() + '', kind: 'video', name: target ? target.name : nextName(),
                           blob: new Blob(res.chunks, { type: res.type }), base: PRE + getLat() / 1000, fine: 0,
                           vol: target ? target.vol : 1, on: true });
-      if (target) { tracks[tracks.indexOf(target)] = t; dispose(target); } else tracks.push(t);
+      if (target) { remember({ type: 'replace', old: target }); tracks[tracks.indexOf(target)] = t; dispose(target); } else tracks.push(t);
       renderList();
     } catch (e) { msg('Не получилось прочитать запись: ' + e.message); }
   }
@@ -556,7 +603,8 @@ $('#pos').oninput = () => { $('#posV').textContent = mmss(+$('#pos').value); dra
 function setPos(T) {
   $('#pos').value = Math.max(0, Math.min(+$('#pos').max, T)); $('#pos').oninput();
 }
-$('#bHome').onclick = $('#fHome').onclick = () => { if (state === 'play') endPlay(false); setPos(0); };
+$('#bUndo').onclick = $('#fUndo').onclick = () => { if (state === 'idle') undo(); };
+$('#bHome').onclick = $('#fHome').onclick =() => { if (state === 'play') endPlay(false); setPos(0); };
 // Палец по волне: касание — встать в это место, ведём вбок — волна едет за пальцем, как лента
 function scrubber(cv) {
   let x0 = null, T0 = 0, moved = false;
@@ -641,7 +689,7 @@ function saveProject(box, where) {
   const head = JSON.stringify({
     app: 'hor', v: 1, lat: getLat(), fmt: $('#fmt').value, title: $('#title').value, notes: $('#notes').value,
     bpm: +$('#bpm').value, tracks: tracks.map(t => ({ id: t.id, kind: t.kind, name: t.name, base: t.base, fine: t.fine,
-                                                      vol: t.vol, on: t.on, type: t.blob.type, size: t.blob.size })),
+                                                      vol: t.vol, on: t.on, locked: !!t.locked, type: t.blob.type, size: t.blob.size })),
   });
   const file = new File([PROJ_MAGIC, head, '\n', ...tracks.map(t => t.blob)], fileName('_proekt', 'horproj'), { type: 'application/octet-stream' });
   offerFile(box, file, msg);
@@ -665,7 +713,7 @@ $('#fProj').onchange = async e => {
       loaded.push(await prepare({ ...m, blob: new Blob([f.slice(p, p + m.size)], { type: m.type }) }));
       p += m.size;
     }
-    tracks.forEach(dispose); tracks = loaded;
+    tracks.forEach(dispose); tracks = loaded; undoStack.length = 0;
     await DB.clear(); for (const t of tracks) await save(t);
     if (head.lat != null) setLat(head.lat);
     if (head.fmt) setFormat(head.fmt);
@@ -730,7 +778,7 @@ $('#fMinus').onchange = async e => {
 };
 $('#bClear').onclick = async () => {
   if (!confirm('Удалить ВСЕ голоса и минусовку?')) return;
-  tracks.forEach(dispose); tracks = []; await DB.clear(); renderList(); msg('Чисто. Можно начинать.');
+  tracks.forEach(dispose); tracks = []; undoStack.length = 0; await DB.clear(); renderList(); showUndo(); msg('Чисто. Можно начинать.');
 };
 
 // ---------- запуск ----------
