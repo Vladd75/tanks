@@ -70,7 +70,7 @@
     <div class="card">
       <button id="bClear">🗑 Начать заново (удалить все голоса)</button>
     </div>
-    <div class="hint" style="text-align:center">Версия 1.2 · 04.11.2026</div>
+    <div class="hint" style="text-align:center">Версия 1.3 · 04.11.2026</div>
   </details>
 
   <details>
@@ -374,13 +374,16 @@ $('#bExport').onclick = async () => {
   const { chunks, type } = res;
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   const d = new Date(), p = n => String(n).padStart(2, '0');
-  const name = `хор_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}.${ext}`;
-  const file = new File(chunks, name, { type });
+  // Для «Отправить» Android хочет латинское имя и тип без кодеков (video/mp4)
+  const name = `hor_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}.${ext}`;
+  const file = new File(chunks, name, { type: type.split(';')[0] });
   const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.textContent = '⬇ Скачать ' + name;
   $('#out').appendChild(a);
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     const b = document.createElement('button'); b.textContent = '📤 Отправить (Telegram и др.)'; b.style.marginTop = '8px';
-    b.onclick = () => navigator.share({ files: [file], title: 'Сама себе хор' }).catch(() => {});
+    b.onclick = () => navigator.share({ files: [file] }).catch(e => {
+      if (e.name !== 'AbortError') msg('Не отправилось: ' + e.name + ' ' + e.message + '. Скачайте файл и отправьте из Telegram.');
+    });
     $('#out').appendChild(b);
   }
   msg('Видео готово.');
