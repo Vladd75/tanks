@@ -40,6 +40,8 @@
   .track .btns { display:flex; gap:6px; }
   button.tiny { flex:none; min-width:48px; padding:8px 10px; }
   .track .wave { touch-action:pan-y; cursor:ew-resize; }   /* вверх-вниз — листать страницу, вбок — перемотка */
+  .track .fineHint { grid-column:1 / -1; font-size:12px; color:#b9a88c; text-align:center; margin-top:-4px; }
+  .track .fineV { min-width:92px; text-align:right; }
   .track .nudge { flex:none; min-height:36px; min-width:36px; padding:4px 10px; font-size:20px; line-height:1; }
   .track .wave { grid-column:1 / -1; width:100%; height:56px; border-radius:8px; display:block; }
   #fab { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; z-index:10; }
@@ -59,7 +61,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="04.11.2026">в. 2.1</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="04.11.2026">в. 2.2</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -141,6 +143,10 @@
       <li>У каждого голоса: ▶ — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
       <li>🔓/🔒 — замок у голоса: закрыт — его громкость, сдвиг, перезапись и удаление не трогаются случайно.
         ↶ — отменить последнее (можно несколько раз подряд): сдвиг, громкость, удаление, перезапись. Работает, пока страница открыта.</li>
+      <li>Во время записи внизу видео бежит волна прошлых голосов: красная линия — «сейчас», справа видно, где скоро вступление.
+        В сохранённое видео эта полоса не попадает.</li>
+      <li>Задержку (⚙️ «Подстроить автоматически») лучше подстроить один раз ДО первой записи. Если подстроили позже — приложение
+        предложит само поправить уже записанные голоса.</li>
       <li>Нажмите на окно видео — настройки этого голоса появятся прямо под видео; ещё раз — уберутся обратно в список.
         Голос, у которого снята галочка, в видео не показывается.</li>
       <li>⏮ — на начало. По волне голоса можно водить пальцем вбок (перемотка) или коснуться — встать в это место. 💾 — сохранить проект файлом.</li>
@@ -337,12 +343,33 @@ function drawCover(v, x, y, w, h) {
   g.restore();
 }
 function frame() { draw(); requestAnimationFrame(frame); }
+// Подсказка «где вступать»: общая волна того, что звучит в наушниках, бежит внизу видео.
+// Линия «сейчас» на трети полосы — справа видно, что будет через 2 секунды. Только на экране, не в видео.
+function drawGuide(T, k) {
+  const heardNow = tracks.filter(t => heard(t) && (!play || play.pick(t)));
+  if (!heardNow.length) return;
+  const h = H * 0.12, y = H - h - 8 * k, start = T - 1, mid = y + h / 2;
+  g.fillStyle = 'rgba(30,24,20,.55)'; g.fillRect(0, y, W, h);
+  for (let px = 0; px < W; px += 2) {
+    const tau = start + px / W * SPAN; let v = 0;
+    for (const t of heardNow) {
+      const i = Math.floor((tau + offsetOf(t)) / PEAK_STEP), p = peaksOf(t);
+      if (i >= 0 && i < p.length && p[i] > v) v = p[i];
+    }
+    if (!v) continue;
+    g.fillStyle = tau < T ? 'rgba(255,240,210,.35)' : 'rgba(255,236,190,.95)';
+    const a = v * (h / 2 - 4 * k); g.fillRect(px, mid - a, 2, a * 2);
+  }
+  g.fillStyle = '#e5402f'; g.fillRect(W / 3 - 2 * k, y, 4 * k, h);
+}
 function draw() {
+  let T = null;
   if (play) {
-    const T = ac().currentTime - play.t0 + play.from;
+    T = ac().currentTime - play.t0 + play.from;
     syncVideos(T);
     if (state === 'play' && T >= 0) { $('#pos').value = T; $('#posV').textContent = mmss(T); drawWaves(T); }
   }
+  if (state === 'countdown') T = -countdown;   // во время 3-2-1 уже видно первое вступление
   g.fillStyle = '#2b2520'; g.fillRect(0, 0, W, H);
   const shown = tracks.filter(t => t.video && t.on && t !== replacing);
   const vids = shown.map(t => t.video);
@@ -360,6 +387,7 @@ function draw() {
       g.fillStyle = '#fff'; g.fillText(label, x + 16 * k, y + h - 16 * k);
       if (t.id === selectedId) { g.strokeStyle = '#e2b54a'; g.lineWidth = 8 * k; g.strokeRect(x + 4 * k, y + 4 * k, w - 8 * k, h - 8 * k); }
     }
+    if (T !== null && ['countdown', 'rec', 'play'].includes(state)) drawGuide(T, k);
   }
   if (showLive && rects.length) {
     const [x, y, w, h] = rects[rects.length - 1];
@@ -391,7 +419,7 @@ function busy(b) {
 
 // ---------- отмена: стопка прошлых состояний (настройки голоса, удалённый голос, прошлый дубль) ----------
 const undoStack = [];
-const settingsOf = t => ({ fine: t.fine, vol: t.vol, on: t.on, name: t.name, locked: !!t.locked });
+const settingsOf = t => ({ fine: t.fine, vol: t.vol, on: t.on, name: t.name, locked: !!t.locked, base: t.base });
 function remember(u) { u.time = Date.now(); undoStack.push(u); if (undoStack.length > 40) undoStack.shift(); showUndo(); }
 // key — склеивать частые одинаковые шаги (нажатия −/+ подряд) в один
 function rememberSet(t, key) {
@@ -403,7 +431,13 @@ function showUndo() { $('#bUndo').disabled = $('#fUndo').disabled = !undoStack.l
 async function undo() {
   const u = undoStack.pop(); if (!u) return;
   try {
-    if (u.type === 'set') {
+    if (u.type === 'group') {
+      for (const it of u.items) {
+        const t = tracks.find(x => x.id === it.id); if (!t) continue;
+        Object.assign(t, it.before); if (t.video) t.video.currentTime = Math.max(0, offsetOf(t)); await save(t);
+      }
+      msg('Отменена поправка голосов.');
+    } else if (u.type === 'set') {
       const t = tracks.find(x => x.id === u.id);
       if (!t) msg('Этого голоса уже нет — отменять нечего.');
       else { Object.assign(t, u.before); if (t.video) t.video.currentTime = Math.max(0, offsetOf(t)); await save(t); msg('Отменено: «' + t.name + '»'); }
@@ -429,7 +463,8 @@ function renderList() {
       <span class="name" title="нажмите, чтобы переименовать"></span>
       <span class="btns"><button class="lock" title="замок: защита от случайных изменений">${t.locked ? '🔒' : '🔓'}</button><button class="solo" title="послушать только этот голос">▶</button>${t.kind === 'video' ? '<button class="redo lk" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del lk" title="удалить">✕</button></span>
       <label>громкость <input class="vol lk" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
-      <label>сдвиг <button class="nudge lk" data-d="-10">−</button><input class="fine lk" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge lk" data-d="10">+</button> <span class="fineV">${t.fine > 0 ? '+' : ''}${t.fine} мс</span></label>
+      <label>сдвиг <button class="nudge lk" data-d="-10" title="позже на 10 мс">−</button><input class="fine lk" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge lk" data-d="10" title="раньше на 10 мс">+</button> <span class="fineV"></span></label>
+      <div class="fineHint">◀ − позже · раньше + ▶</div>
       <canvas class="wave" height="56"></canvas>`;
     t.wave = d.querySelector('.wave');
     scrubber(t.wave);
@@ -459,7 +494,7 @@ function renderList() {
     vol.onchange = () => { editing = false; save(t); };
     const fine = d.querySelector('.fine');
     const showFine = () => {
-      d.querySelector('.fineV').textContent = (t.fine > 0 ? '+' : '') + t.fine + ' мс';
+      d.querySelector('.fineV').textContent = t.fine > 0 ? `+${t.fine} мс раньше` : t.fine < 0 ? `${t.fine} мс позже` : '0 мс';
       if (t.video) t.video.currentTime = Math.max(0, offsetOf(t));
       drawWaves();
     };
@@ -470,6 +505,7 @@ function renderList() {
       rememberSet(t, 'nudge');
       t.fine = Math.max(-2000, Math.min(2000, t.fine + +b.dataset.d)); fine.value = t.fine; showFine(); save(t);
     });
+    showFine();
     d.querySelectorAll('.lk').forEach(e => e.disabled = !!t.locked);
     (t.id === selectedId ? $('#selSlot') : box).appendChild(d);   // выбранный голос — прямо под видео
     t.wave.width = Math.round(t.wave.clientWidth * (window.devicePixelRatio || 1));
@@ -795,7 +831,28 @@ $('#bCal').onclick = async () => {
   const med = found[Math.floor(found.length / 2)], spread = found[found.length - 1] - found[0];
   setLat(Math.max(0, med * 1000));
   msg(`Задержка ${getLat()} мс` + (spread > 0.04 ? ' (неуверенно — попробуйте ещё раз в тишине)' : ' — готово. Действует для новых голосов.'));
+  if (spread <= 0.04) fixOldVoices();
 };
+
+// Уже записанные голоса записаны с прежней задержкой. Подгоняем их под новую — но только те, что пелись
+// ПОД что-то: с минусовкой это все голоса, без неё — все, кроме самого первого (он эталон, под него пели).
+// Ручной «сдвиг» не трогаем, меняем только base; голоса под замком пропускаем. Всё отменяется ↶.
+function fixOldVoices() {
+  const vids = tracks.filter(t => t.kind === 'video');
+  const first = tracks.some(t => t.kind === 'audio') ? null : vids.reduce((a, t) => (!a || t.id < a.id ? t : a), null);
+  const want = PRE + getLat() / 1000;
+  const todo = vids.filter(t => t !== first && !t.locked && Math.abs(t.base - want) >= 0.01);
+  const lockedSkip = vids.filter(t => t !== first && t.locked && Math.abs(t.base - want) >= 0.01);
+  if (!todo.length) return;
+  const list = todo.map(t => `«${t.name}» ${(want - t.base) > 0 ? '+' : ''}${Math.round((want - t.base) * 1000)} мс`).join(', ');
+  if (!confirm(`Поправить уже записанные голоса под новую задержку?\n${list}` +
+               (first ? `\n«${first.name}» — эталон, его не трогаю.` : '') +
+               (lockedSkip.length ? `\nПод замком, пропускаю: ${lockedSkip.map(t => t.name).join(', ')}.` : ''))) return;
+  remember({ type: 'group', items: todo.map(t => ({ id: t.id, before: settingsOf(t) })) });   // ↶ отменит всё разом
+  for (const t of todo) { t.base = want; if (t.video) t.video.currentTime = Math.max(0, offsetOf(t)); save(t); }
+  renderList();
+  msg(`Задержка ${getLat()} мс. Поправлено голосов: ${todo.length}. Не понравится — ↶ Отменить.`);
+}
 $('#lat').oninput = e => setLat(+e.target.value);
 
 // ---------- минусовка и очистка ----------
