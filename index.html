@@ -358,7 +358,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const GAME_VERSION = 'Версия 1.0 · 19.10.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
+const GAME_VERSION = 'Версия 1.1 · 04.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
 const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
@@ -2835,7 +2835,7 @@ function menu() {
     '<p class="small"><b>Обычная игра</b> — для новичков. <b>Ангар</b> — выбираешь танк, враги сильнее, обойма с перезарядкой.</p>' +
     '<p class="small" style="text-align:center; color:#8a7d60; margin:2px 0 0">' + GAME_VERSION + '</p>',
     [{ label: 'Обычная игра', fn: () => { gameMode = 'classic'; loadSave(); modeMenu(); } }, { label: 'Ангар', cls: 'red', fn: showHangar },
-     { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }]
+     { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }, { label: 'Перенос прогресса', cls: 'gray', fn: showTransfer }]
       .concat(author ? [{ label: 'Выйти из режима автора', cls: 'gray', fn: () => { author = false; loadSave(); menu(); } }] : []));
   $('help').textContent = '';
 }
@@ -2920,6 +2920,31 @@ function showIdeas() {
     '<textarea id="ideaText" class="ideaField" rows="4" maxlength="800" placeholder="Моя идея…"></textarea><p class="small" id="ideaMsg"></p>',
     [{ label: 'Отправить', fn: sendIdea }, { label: 'Назад', cls: 'gray', fn: menu }]);
   $('ideaName').value = name;
+}
+// Перенос прогресса на другое устройство/в другой браузер: «код» = все сохранения tanks3d_* (кроме режима автора) одной строкой.
+function showTransfer() {
+  state = 'ask';
+  showOverlay('Перенос прогресса', '<p class="small">Где игра уже идёт: «Показать код» — код скопируется. На новом месте: «Перенос прогресса» — вставь код — «Загрузить». Прогресс на новом месте заменится.</p>' +
+    '<textarea id="trCode" class="ideaField" rows="5" placeholder="Код прогресса"></textarea><p class="small" id="trMsg"></p>',
+    [{ label: 'Показать код', fn: trExport }, { label: 'Загрузить', fn: trImport }, { label: 'Назад', cls: 'gray', fn: menu }]);
+}
+const trKeys = o => Object.keys(o).filter(k => k.indexOf('tanks3d_') === 0 && !/_author$/.test(k));
+function trExport() {
+  const o = {};
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.indexOf('tanks3d_') === 0 && !/_author$/.test(k)) o[k] = localStorage.getItem(k); } } catch (e) {}
+  const code = 'TK1:' + btoa(unescape(encodeURIComponent(JSON.stringify(o)))), t = $('trCode');
+  t.value = code; t.select();
+  let ok = false; try { navigator.clipboard.writeText(code); ok = true; } catch (e) {}
+  $('trMsg').textContent = 'Код готов' + (ok ? ' и скопирован' : ' — скопируй его вручную') + ' (записей: ' + trKeys(o).length + ').';
+}
+function trImport() {
+  const m = $('trMsg'); let o;
+  try { o = JSON.parse(decodeURIComponent(escape(atob($('trCode').value.trim().replace(/^TK1:/, ''))))); } catch (e) { m.textContent = 'Код не подошёл — скопируй его целиком.'; return; }
+  const ks = trKeys(o);
+  if (!ks.length) { m.textContent = 'В коде нет прогресса.'; return; }
+  try { for (const k of ks) localStorage.setItem(k, String(o[k])); } catch (e) { m.textContent = 'Не удалось записать.'; return; }
+  m.textContent = 'Готово, загружено записей: ' + ks.length + '.';
+  setTimeout(() => { loadSave(); menu(); }, 900);
 }
 function ideaThanks(text) { showOverlay('Идеи для игры', '<p>' + text + '</p>', [{ label: 'Ещё идея', fn: showIdeas }, { label: 'В меню', cls: 'gray', fn: menu }]); }
 function sendIdea() {
