@@ -68,7 +68,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.9</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 3.0</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -101,6 +101,11 @@
       <option value="wide">Широкий, YouTube — 16:9 (1920×1080)</option>
     </select>
     <input id="title" type="text" placeholder="Название видео (для имени файла)">
+    <select id="q" title="Качество готового видео">
+      <option value="1">Качество: высокое (1080)</option>
+      <option value="0.6667">Качество: среднее (720)</option>
+      <option value="0.5">Качество: пробное (540, быстро)</option>
+    </select>
   </div>
   <div class="row">
     <select id="lay" title="Как расставить окна">
@@ -190,6 +195,7 @@
       <b>Сохранение</b>
       <ul>
         <li>Выбрать формат (Stories 9:16, пост 4:5, квадрат, YouTube 16:9) и написать название.</li>
+        <li>Качество: высокое (1080) — для публикации; среднее (720); пробное (540) — быстро посмотреть, что получится.</li>
         <li>Расстановка окон: сетка сама, все в один ряд (ползунок «высота окон»: ниже — меньше обрезано, больше фона), по 2…5 в ряд.
           Пустые места заливаются размытым фоном из цветов самих видео.</li>
         <li>🙂 Выровнять головы — программа находит лица и делает головы одного размера и на одной высоте
@@ -465,16 +471,20 @@ function cropOf(v, w, h, fr) {
 // Фон «из соседних пикселей»: та же картинка, ужатая в крошечную и растянутая обратно — мягкое размытие,
 // дешёвое для планшета (обычный blur на весь кадр 30 раз в секунду он не потянет)
 const tiny = document.createElement('canvas'), tg = tiny.getContext('2d');
-const mid = document.createElement('canvas'), mg = mid.getContext('2d');
+const bgCache = new WeakMap();   // у каждого видео свой готовый размытый фон: пересчитываем раз в 4 кадра, фон и так мутный
 function drawBlur(v, [x, y, w, h], fr) {
   if (!v.videoWidth) return;
-  tiny.width = Math.max(4, Math.round(w / 48)); tiny.height = Math.max(4, Math.round(h / 48));
-  mid.width = tiny.width * 6; mid.height = tiny.height * 6;
-  const c = cropOf(v, w, h, fr);
-  tg.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, tiny.width, tiny.height);
-  mg.filter = 'blur(6px)'; mg.drawImage(tiny, -6, -6, mid.width + 12, mid.height + 12);   // смягчаем «квадратики» на маленьком холсте
+  let b = bgCache.get(v);
+  if (!b) { b = { cv: document.createElement('canvas'), n: 0 }; bgCache.set(v, b); }
+  const tw = Math.max(4, Math.round(w / 48)), th = Math.max(4, Math.round(h / 48));
+  if (b.n++ % 4 === 0 || b.cv.width !== tw * 6 || b.cv.height !== th * 6) {
+    tiny.width = tw; tiny.height = th; b.cv.width = tw * 6; b.cv.height = th * 6;
+    const c = cropOf(v, w, h, fr), mg = b.cv.getContext('2d');
+    tg.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, tw, th);
+    mg.filter = 'blur(6px)'; mg.drawImage(tiny, -6, -6, b.cv.width + 12, b.cv.height + 12);   // смягчаем «квадратики» на маленьком холсте
+  }
   g.save(); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  g.translate(x + w, y); g.scale(-1, 1); g.drawImage(mid, 0, 0, w, h); g.restore();
+  g.translate(x + w, y); g.scale(-1, 1); g.drawImage(b.cv, 0, 0, w, h); g.restore();
   g.fillStyle = 'rgba(30,24,20,.25)'; g.fillRect(x, y, w, h);
 }
 function drawCover(v, x, y, w, h, fr) {
@@ -484,7 +494,9 @@ function drawCover(v, x, y, w, h, fr) {
   g.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, w, h);
   g.restore();
 }
-function frame() { draw(); requestAnimationFrame(frame); }
+// При сохранении видео рисует только таймер (он идёт и при скрытом экране); раньше рисовали оба — двойная работа
+// на 1080×1920, планшет не успевал: 25 кадров/с с рывками вместо 30
+function frame() { if (state !== 'export') draw(); requestAnimationFrame(frame); }
 // Подсказка «где вступать»: общая волна того, что звучит в наушниках, бежит внизу видео.
 // Линия «сейчас» на трети полосы — справа видно, что будет через 2 секунды. Только на экране, не в видео.
 function drawGuide(T, k) {
@@ -553,7 +565,7 @@ function draw() {
 // ---------- интерфейс ----------
 function msg(t) { $('#msg').textContent = $('#edMsg').textContent = t || ''; }   // и на экране ножниц
 function busy(b) {
-  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj', '#bFaces', '#lay', '#rowH']) $(id).disabled = b;
+  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj', '#bFaces', '#lay', '#rowH', '#q']) $(id).disabled = b;
   $('#bStop').disabled = !b;
   $('#fPlay').disabled = b; $('#fStop').disabled = !b;
   stageTouch();
@@ -1007,15 +1019,16 @@ $('#bExport').onclick = async () => {
   const ok = m => m && MediaRecorder.isTypeSupported(m);
   const mp4 = [...new Set(['video/mp4;codecs=avc1.640028,mp4a.40.2', MIME, 'video/mp4'])].filter(m => ok(m) && m.includes('mp4'));
   const webm = ['video/webm;codecs=vp8,opus', 'video/webm'].filter(ok);
-  const tries = mp4.slice(0, 2).map(m => [m, 1]);
-  if (mp4.length) for (const lim of [1280, 960]) if (big > lim) tries.push([mp4[0], lim / big]);
-  if (webm.length) tries.push([webm[0], 1]);
+  // Качество: 1 — 1080, 0,667 — 720, 0,5 — 540 (пробное, быстро). Не вышло — ещё меньше; webm — в своём качестве.
+  const q = +$('#q').value || 1, tries = mp4.slice(0, 2).map(m => [m, q]);
+  if (mp4.length) for (const lim of [1280, 960]) if (big * q > lim) tries.push([mp4[0], lim / big]);
+  if (webm.length) tries.push([webm[0], q]);
   const tick = setInterval(draw, 33);   // запись видео идёт, только пока холст перерисовывается
   let res = null, why = '', size = '';
   for (const [m, k] of tries) {
     W = Math.round(FW * k / 2) * 2; H = Math.round(FH * k / 2) * 2; $('#stage').width = W; $('#stage').height = H;
     const out = new MediaStream([...$('#stage').captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-    try { res = await recordStream(out, m, k < 1 ? 5000000 : 8000000, 0.15, t0 => startTracks(t0, from), len + 0.45); size = `${W}×${H}`; }
+    try { res = await recordStream(out, m, Math.round(Math.max(2e6, 8e6 * k * k)), 0.15, t0 => startTracks(t0, from), len + 0.45); size = `${W}×${H}`; }
     catch (e) { why += `${m.split(';')[0]} ${W}×${H}: ${e.message}. `; msg('Пробую по-другому…'); }
     out.getVideoTracks().forEach(t => t.stop()); stopTracks();
     if (res || state !== 'export') break;
@@ -1421,6 +1434,7 @@ $('#bClear').onclick = async () => {
     $('#lay').value = localStorage.getItem('choir.lay') || 'grid';
     if (!$('#lay').value) $('#lay').value = 'row';   // было «rowfull» в 2.8 — такого варианта больше нет
     $('#rowH').value = localStorage.getItem('choir.rowH') || 0.75;
+    $('#q').value = localStorage.getItem('choir.q') || '1';
     [songIn, songOut] = JSON.parse(localStorage.getItem('choir.trim') || '[0,0]');
     $('#notes').value = localStorage.getItem('choir.notes') || '';
   } catch (e) {}
@@ -1430,6 +1444,7 @@ $('#bClear').onclick = async () => {
   // смена расстановки, высоты окон или формата — головы по найденным лицам подстраиваются сами
   $('#lay').onchange = () => { keep('choir.lay', $('#lay').value); $('#rowHBox').hidden = $('#lay').value !== 'row'; fitFaces(); };
   $('#rowH').onchange = () => { keep('choir.rowH', $('#rowH').value); fitFaces(); };
+  $('#q').onchange = () => keep('choir.q', $('#q').value);
   $('#rowHBox').hidden = $('#lay').value !== 'row';
   $('#notes').oninput = () => keep('choir.notes', $('#notes').value);
   if (!window.MediaRecorder || !navigator.mediaDevices) { msg('Этот браузер не умеет записывать. Откройте в Chrome.'); busy(true); $('#bStop').disabled = true; return; }
