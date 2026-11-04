@@ -62,7 +62,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.4</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 2.5</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -76,6 +76,7 @@
   <div class="row metro">
     <label><input id="metOn" type="checkbox"> 🥁 Метроном</label>
     <input id="bpm" type="number" min="30" max="240" step="1" value="80" inputmode="numeric"> <span class="hint">ударов в минуту</span>
+    <label class="hint">тише <input id="metVol" type="range" min="0.02" max="0.5" step="0.02" value="0.1" style="width:90px;vertical-align:middle"> громче</label>
   </div>
   <div class="row">
     <button id="bPlay" class="go">▶ Слушать всё</button>
@@ -147,7 +148,7 @@
       <b>Запись</b>
       <ol>
         <li>Держать планшет <b>вертикально</b>, чтобы было видно лицо.</li>
-        <li>Нет минусовки — включить 🥁 Метроном и задать темп. Щелчки слышны только в наушниках, в видео их не будет.</li>
+        <li>Нет минусовки — включить 🥁 Метроном и задать темп. Щелчки слышны только в наушниках, в видео их не будет. Громко не ставить (ползунок «тише/громче») — микрофон услышит их через наушники.</li>
         <li>«● Записать голос» → отсчёт 3-2-1 → петь → «■ Стоп».</li>
         <li>Следующий голос — снова «● Записать голос». Прошлые голоса звучат в наушниках, а внизу видео бежит их волна:
           красная линия — «сейчас», справа видно, где скоро вступать. Запись остановится сама в конце песни.</li>
@@ -310,7 +311,9 @@ function startMetronome(t0, from) {
     const f = b ? 1000 : 1600, o = Math.round(b * beat * sr);
     for (let i = 0; i < sr * 0.03 && o + i < ch.length; i++) ch[o + i] = 0.5 * Math.sin(2 * Math.PI * f * i / sr) * Math.exp(-i / (sr * 0.008));
   }
-  const s = c.createBufferSource(); s.buffer = buf; s.loop = true; s.connect(c.destination);
+  // Громко нельзя: из наушников щелчки просачиваются в микрофон и попадают в запись
+  const gn = c.createGain(); gn.gain.value = (+$('#metVol').value || 0.1) / 0.5; gn.connect(c.destination);
+  const s = c.createBufferSource(); s.buffer = buf; s.loop = true; s.connect(gn);
   s.start(t0, from % buf.duration);
   return s;
 }
@@ -1028,10 +1031,12 @@ $('#bClear').onclick = async () => {
   try {
     $('#bpm').value = localStorage.getItem('choir.bpm') || 80;
     $('#metOn').checked = localStorage.getItem('choir.met') === '1';
+    $('#metVol').value = localStorage.getItem('choir.metVol') || 0.1;
     $('#notes').value = localStorage.getItem('choir.notes') || '';
   } catch (e) {}
   $('#bpm').onchange = () => keep('choir.bpm', $('#bpm').value);
   $('#metOn').onchange = () => keep('choir.met', $('#metOn').checked ? '1' : '0');
+  $('#metVol').onchange = () => keep('choir.metVol', $('#metVol').value);
   $('#notes').oninput = () => keep('choir.notes', $('#notes').value);
   if (!window.MediaRecorder || !navigator.mediaDevices) { msg('Этот браузер не умеет записывать. Откройте в Chrome.'); busy(true); $('#bStop').disabled = true; return; }
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
