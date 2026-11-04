@@ -50,6 +50,9 @@
   .card button.gray { background: #7a7468; box-shadow: 0 5px 0 #57534a; }
   .card button.gray:hover { background: #8c8679; }
   .card p.small { font-size: 15px; text-align: left; }
+  .wheelBox { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; text-align: left; cursor: pointer; }
+  .wheelBox canvas { width: 48px; height: 48px; image-rendering: pixelated; flex: none; }
+  .wheelBox input { width: 26px; height: 26px; flex: none; }
   .ideaField { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 8px 10px; margin: 4px 0; border: 2px solid #c9b98a; border-radius: 10px;
     background: #fff; color: #222; resize: none; user-select: text; -webkit-user-select: text; touch-action: auto; }
   /* низкий экран — телефон, повёрнутый боком: всё мельче и плотнее */
@@ -358,7 +361,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const GAME_VERSION = 'Версия 1.1 · 04.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
+const GAME_VERSION = 'Версия 1.2 · 05.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
 const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
@@ -431,6 +434,8 @@ const SHOP = [
   { key: 'rocket', name: 'Ракетная установка', desc: 'ракеты сами находят самолёт или вертолёт: 2, 4, 6, 8 штук на уровень; последняя ступень — пополняются сами, по одной в 5 секунд', costs: [600, 1200, 2400, 4000, 7000] },
 ];
 const SAVE_KEY = 'tanks3d_save';
+// Руль «на 90°» — настройка устройства (ключ без tanks3d_, в код переноса не входит): танк поворачивает только вверх/вниз/вправо/влево.
+let wheel90 = false; try { wheel90 = localStorage.getItem('tk_wheel90') === '1'; } catch (e) {}
 const save = { level: 0, coins: 0, hard: false, up: {} };
 for (const u of SHOP) save.up[u.key] = 0;
 // Два режима: 'classic' — обычная игра для новичков (какой была), 'hangar' — с ангаром и выбором танка.
@@ -1448,6 +1453,7 @@ function inputVector(st) {           // куда игрок хочет ехат�
   if (!st.length) return null;
   const last = st[st.length - 1];
   if (last.vx !== undefined) return [last.vx, last.vz];
+  if (wheel90) return [DX[last.dir], DZ[last.dir]];            // «руль на 90°»: по клавишам тоже без диагоналей
   let x = 0, z = 0;
   for (const k of st) if (k.vx === undefined) { x += DX[k.dir]; z += DZ[k.dir]; }
   if (!x && !z) { x = DX[last.dir]; z = DZ[last.dir]; }            // зажаты противоположные — слушаем последнюю
@@ -2739,7 +2745,7 @@ function makeTouchPad(idx) {
     if (len < 14) { setVec(null); return; }
     let a = Math.atan2(dy, dx);                      // любой угол; рядом с «прямо» подравниваем, чтобы легко ехать ровно
     const q = Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
-    if (Math.abs(a - q) < 0.21) a = q;
+    if (wheel90 || Math.abs(a - q) < 0.21) a = q;
     setVec(Math.cos(a), Math.sin(a));
   }
   zone.addEventListener('pointerdown', e => {
@@ -2833,10 +2839,11 @@ function menu() {
   showOverlay(author ? 'Танчики 3D.\nВосстание машин — автор' : 'Танчики 3D.\nВосстание машин', (author ? '<p class="small"><b>Режим автора:</b> своё сохранение, токенов и монет без счёта, все танки, уровень на выбор. Сохранения ребят не трогаются.</p>' : '') +
     '<p>Подбей все вражеские танки. ' + LEVELS.length + ' уровней, каждый десятый — босс. После ' + ROBOT_FROM + '-го — война с роботами.</p>' +
     '<p class="small"><b>Обычная игра</b> — для новичков. <b>Ангар</b> — выбираешь танк, враги сильнее, обойма с перезарядкой.</p>' +
-    '<p class="small" style="text-align:center; color:#8a7d60; margin:2px 0 0">' + GAME_VERSION + '</p>',
+    '<p class="small" style="text-align:center; color:#8a7d60; margin:2px 0 0">' + GAME_VERSION + '</p>' + wheelBoxHtml(),
     [{ label: 'Обычная игра', fn: () => { gameMode = 'classic'; loadSave(); modeMenu(); } }, { label: 'Ангар', cls: 'red', fn: showHangar },
      { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }, { label: 'Перенос прогресса', cls: 'gray', fn: showTransfer }]
       .concat(author ? [{ label: 'Выйти из режима автора', cls: 'gray', fn: () => { author = false; loadSave(); menu(); } }] : []));
+  wheelBoxInit();
   $('help').textContent = '';
 }
 let titleTaps = [];
@@ -2909,6 +2916,16 @@ function showHangar() {           // ангар: выбрать или купи�
     storeSave(); SFX.pickup(); showHangar();
   }));
 }
+// Старичок-Хоттабыч (пиксельный) на галочке «Руль на 90°»
+const GRANDPA = ['................', '.....KKKKKK.....', '....KSSSSSSK....', '...KSSSSSSSSK...', '..KWSSSSSSSSWK..', '..KWSSESSESSWK..', '..KWSSSSSSSSWK..', '..KWWSSSSSSWWK..', '..KWWWWSSWWWWK..', '..KWWWWWWWWWWK..', '...KWWWWWWWWK...', '...KWGWWWWGWK...', '....KWWGGWWK....', '.....KWWWWK.....', '......KWWK......', '.......KK.......'];
+function wheelBoxHtml() { return '<label class="wheelBox"><canvas id="wheelPic" width="16" height="16"></canvas><span><b>Руль на 90°</b><br><span class="small">для опытных дедушек: танк едет только прямо — вверх, вниз, вправо, влево</span></span><input type="checkbox" id="wheel90"></label>'; }
+function wheelBoxInit() {
+  const c = $('wheel90'), cv = $('wheelPic'); if (!c || !cv) return;
+  c.checked = wheel90;
+  c.onchange = () => { wheel90 = c.checked; try { localStorage.setItem('tk_wheel90', wheel90 ? '1' : '0'); } catch (e) {} };
+  const g = cv.getContext('2d'), pal = { K: '#5a4a3a', S: '#f2c9a0', W: '#ffffff', G: '#c9d0d8', E: '#222222' };
+  GRANDPA.forEach((row, y) => { for (let x = 0; x < 16; x++) { const col = pal[row[x]]; if (col) { g.fillStyle = col; g.fillRect(x, y, 1, 1); } } });
+}
 // Идеи игроков. Если игра открыта с домашнего сервера — идея дописывается в общий файл на нём
 // (он же попадает в заметки Note24). Со странички в интернете или из файла — предлагаем переслать идею самому.
 function showIdeas() {
@@ -2922,29 +2939,53 @@ function showIdeas() {
   $('ideaName').value = name;
 }
 // Перенос прогресса на другое устройство/в другой браузер: «код» = все сохранения tanks3d_* (кроме режима автора) одной строкой.
+// Ссылка для пересылки: <адрес игры>#tk=<тот же код в «url-безопасной» записи>; игра сама предлагает загрузить его при открытии.
 function showTransfer() {
   state = 'ask';
-  showOverlay('Перенос прогресса', '<p class="small">Где игра уже идёт: «Показать код» — код скопируется. На новом месте: «Перенос прогресса» — вставь код — «Загрузить». Прогресс на новом месте заменится.</p>' +
-    '<textarea id="trCode" class="ideaField" rows="5" placeholder="Код прогресса"></textarea><p class="small" id="trMsg"></p>',
-    [{ label: 'Показать код', fn: trExport }, { label: 'Загрузить', fn: trImport }, { label: 'Назад', cls: 'gray', fn: menu }]);
+  showOverlay('Перенос прогресса', '<p class="small">Где игра уже идёт: «Поделиться» — отправь ссылку (Telegram, Max, почта…) и открой её на другом устройстве. Или «Показать код» — и вставь его там в это поле. Прогресс на новом месте заменится.</p>' +
+    '<textarea id="trCode" class="ideaField" rows="4" placeholder="Код прогресса"></textarea><p class="small" id="trMsg"></p>',
+    [{ label: 'Поделиться', fn: trShare }, { label: 'Показать код', cls: 'blue', fn: trExport }, { label: 'Загрузить', fn: trImport }, { label: 'Назад', cls: 'gray', fn: menu }]);
 }
 const trKeys = o => Object.keys(o).filter(k => k.indexOf('tanks3d_') === 0 && !/_author$/.test(k));
-function trExport() {
+function trBuild() {
   const o = {};
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.indexOf('tanks3d_') === 0 && !/_author$/.test(k)) o[k] = localStorage.getItem(k); } } catch (e) {}
-  const code = 'TK1:' + btoa(unescape(encodeURIComponent(JSON.stringify(o)))), t = $('trCode');
-  t.value = code; t.select();
-  let ok = false; try { navigator.clipboard.writeText(code); ok = true; } catch (e) {}
-  $('trMsg').textContent = 'Код готов' + (ok ? ' и скопирован' : ' — скопируй его вручную') + ' (записей: ' + trKeys(o).length + ').';
+  return { code: 'TK1:' + btoa(unescape(encodeURIComponent(JSON.stringify(o)))), n: trKeys(o).length };
+}
+function trExport() {
+  const b = trBuild(), t = $('trCode');
+  t.value = b.code; t.select();
+  let ok = false; try { navigator.clipboard.writeText(b.code); ok = true; } catch (e) {}
+  $('trMsg').textContent = 'Код готов' + (ok ? ' и скопирован' : ' — скопируй его вручную') + ' (записей: ' + b.n + ').';
+}
+function trShare() {
+  const b = trBuild(), m = $('trMsg');
+  if (!b.n) { m.textContent = 'Пока нечего переносить — сначала поиграй.'; return; }
+  const url = location.href.split('#')[0] + '#tk=' + b.code.slice(4).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const text = 'Мой прогресс в «Танчиках 3D». Открой ссылку на другом устройстве — игра предложит его загрузить:';
+  if (window.AndroidApp && AndroidApp.share) { AndroidApp.share(text + '\n' + url); return; }
+  if (navigator.share) { navigator.share({ title: 'Танчики 3D', text: text, url: url }).catch(() => {}); return; }
+  try { navigator.clipboard.writeText(url); m.textContent = 'Ссылка скопирована — вставь её в сообщение.'; } catch (e) { $('trCode').value = url; $('trCode').select(); m.textContent = 'Скопируй ссылку из поля.'; }
+}
+function trApply(raw) {            // записывает прогресс из кода/ссылки; возвращает текст для игрока
+  let o;
+  try {
+    let s = raw.trim().replace(/^TK1:/, '').replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+    o = JSON.parse(decodeURIComponent(escape(atob(s))));
+  } catch (e) { return { ok: false, msg: 'Код не подошёл — скопируй его целиком.' }; }
+  const ks = trKeys(o);
+  if (!ks.length) return { ok: false, msg: 'В коде нет прогресса.' };
+  try { for (const k of ks) localStorage.setItem(k, String(o[k])); } catch (e) { return { ok: false, msg: 'Не удалось записать.' }; }
+  return { ok: true, msg: 'Готово, загружено записей: ' + ks.length + '.' };
 }
 function trImport() {
-  const m = $('trMsg'); let o;
-  try { o = JSON.parse(decodeURIComponent(escape(atob($('trCode').value.trim().replace(/^TK1:/, ''))))); } catch (e) { m.textContent = 'Код не подошёл — скопируй его целиком.'; return; }
-  const ks = trKeys(o);
-  if (!ks.length) { m.textContent = 'В коде нет прогресса.'; return; }
-  try { for (const k of ks) localStorage.setItem(k, String(o[k])); } catch (e) { m.textContent = 'Не удалось записать.'; return; }
-  m.textContent = 'Готово, загружено записей: ' + ks.length + '.';
-  setTimeout(() => { loadSave(); menu(); }, 900);
+  const r = trApply($('trCode').value); $('trMsg').textContent = r.msg;
+  if (r.ok) setTimeout(() => { loadSave(); menu(); }, 900);
+}
+function trHashStart(h) {          // открыли ссылку с чужим/своим прогрессом
+  state = 'ask';
+  showOverlay('Прогресс по ссылке', '<p>В ссылке чей-то прогресс. Загрузить его? <b>Прогресс на этом устройстве заменится.</b></p>',
+    [{ label: 'Загрузить', fn: () => { const r = trApply(h); showOverlay('Перенос прогресса', '<p>' + r.msg + '</p>', [{ label: 'В меню', fn: () => { loadSave(); menu(); } }]); } }, { label: 'Не надо', cls: 'gray', fn: menu }]);
 }
 function ideaThanks(text) { showOverlay('Идеи для игры', '<p>' + text + '</p>', [{ label: 'Ещё идея', fn: showIdeas }, { label: 'В меню', cls: 'gray', fn: menu }]); }
 function sendIdea() {
@@ -3034,7 +3075,19 @@ function startLevel() {
     ? 'Зелёный: W A S D + Пробел, ракета E &nbsp;•&nbsp; Синий: стрелки + Enter, ракета правый Shift &nbsp;•&nbsp; P — пауза'
     : 'Ехать: стрелки или W A S D (две сразу — наискосок) &nbsp;•&nbsp; Стрелять: Пробел &nbsp;•&nbsp; Ракета: E &nbsp;•&nbsp; P — пауза, M — звук';
 }
-function pause() { state = 'pause'; resetInput(); showOverlay('Пауза', isTouch() ? '' : '<p>Нажми <kbd>P</kbd>, чтобы продолжить</p>', [{ label: 'Продолжить', fn: resume }, { label: 'В меню', cls: 'blue', fn: menu }], resume); }
+function pause() {
+  state = 'pause'; resetInput();
+  showOverlay('Пауза', (isTouch() ? '' : '<p>Нажми <kbd>P</kbd>, чтобы продолжить</p>') + wheelBoxHtml(),
+    [{ label: 'Продолжить', fn: resume }, { label: 'В меню', cls: 'blue', fn: menu }, { label: 'Выйти из игры', cls: 'gray', fn: exitGame }], resume);
+  wheelBoxInit();
+}
+// Выход: записываем прогресс (монеты, собранные на этом уровне, тоже). В приложении Android — закрываем его, в браузере вкладку закрыть нельзя.
+function exitGame() {
+  storeSave();
+  if (window.AndroidApp && AndroidApp.exit) { AndroidApp.exit(); return; }
+  state = 'ask';
+  showOverlay('Прогресс сохранён', '<p>Можно закрывать игру — вкладку или окно.</p>', [{ label: 'В меню', cls: 'blue', fn: menu }]);
+}
 function resume() { hideOverlay(); state = 'play'; last = performance.now(); }
 function afterClear() {
   resetInput();
@@ -3348,6 +3401,7 @@ if (handoff.net === 'host' || (handoff.net === 'join' && handoff.code)) {     //
   if (TANKS[handoff.tank]) { sessionTank = handoff.tank; sessionStars = Math.max(0, Math.min(3, handoff.stars | 0)); }
   if (handoff.net === 'host') netConnect('host'); else netConnect('join', handoff.code.replace(/\D/g, '').slice(0, 4));
 }
+if (handoff.tk) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} trHashStart(handoff.tk); }
 </script>
 </body>
 </html>
