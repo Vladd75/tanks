@@ -47,6 +47,9 @@
                 background:rgba(93,123,79,.82); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #fab #fStop, #fab #fHome { background:rgba(58,49,40,.75); }
   #fab #fUndo { background:rgba(181,82,59,.8); }
+  #fab.away { display:none; }   /* основные кнопки на экране — круглые не нужны и не закрывают их */
+  h1 .ver { font-size:12px; font-weight:400; color:#b9a88c; white-space:nowrap; vertical-align:middle; }
+  #selSlot .track { border:2px solid #e2b54a; margin-top:8px; }
   .track.locked { border-color:#c9b48a; background:#fbf6ea; }
   .track .lock { flex:none; }
   #fab button:disabled { opacity:.3; }
@@ -55,10 +58,11 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор</h1>
+  <h1>🎤 Сама себе хор <span class="ver">версия 2.0 · 04.11.2026</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
+  <div id="selSlot"></div>
   <div id="msg"></div>
 
   <div class="row">
@@ -113,7 +117,6 @@
     <div class="card">
       <button id="bClear">🗑 Начать заново (удалить все голоса)</button>
     </div>
-    <div class="hint" style="text-align:center">Версия 1.9 · 04.11.2026</div>
   </details>
 
   <details>
@@ -137,6 +140,8 @@
       <li>У каждого голоса: ▶ — послушать его одного, ⟳ — перезаписать на том же месте, ✕ — удалить, нажать на имя — переименовать.</li>
       <li>🔓/🔒 — замок у голоса: закрыт — его громкость, сдвиг, перезапись и удаление не трогаются случайно.
         ↶ — отменить последнее (можно несколько раз подряд): сдвиг, громкость, удаление, перезапись. Работает, пока страница открыта.</li>
+      <li>Нажмите на окно видео — настройки этого голоса появятся прямо под видео; ещё раз — уберутся обратно в список.
+        Голос, у которого снята галочка, в видео не показывается.</li>
       <li>⏮ — на начало. По волне голоса можно водить пальцем вбок (перемотка) или коснуться — встать в это место. 💾 — сохранить проект файлом.</li>
       <li>Голос раньше/позже остальных — ползунок «сдвиг» у этого голоса (до 2 секунд), а «−» / «+» рядом — точно, по 10 мс.
         Если отстают все новые голоса — один раз сделайте ⚙️ «Подстроить автоматически». Под каждым голосом — его звуковая волна
@@ -302,6 +307,8 @@ function syncVideos(T) {
 // ---------- картинка ----------
 const g = $('#stage').getContext('2d');
 let state = 'idle';      // idle | countdown | rec | play | export | cal
+let tiles = [];          // окна на холсте: {t, r:[x,y,w,h]}
+let selectedId = null;   // голос, чья карточка показана под видео
 let countdown = 0;
 
 // Сетка под любой формат: подбираем столбцы/ряды так, чтобы окно было ближе к портрету 3:4 и меньше пустых мест
@@ -336,12 +343,23 @@ function draw() {
     if (state === 'play' && T >= 0) { $('#pos').value = T; $('#posV').textContent = mmss(T); drawWaves(T); }
   }
   g.fillStyle = '#2b2520'; g.fillRect(0, 0, W, H);
-  const vids = tracks.filter(t => t.video && t.on && t !== replacing).map(t => t.video);
+  const shown = tracks.filter(t => t.video && t.on && t !== replacing);
+  const vids = shown.map(t => t.video);
   const showLive = cam && state !== 'export' && state !== 'play' && vids.length < MAX_TRACKS;
   const all = showLive ? [...vids, $('#live')] : vids;
   const rects = layout(all.length);
   all.forEach((v, i) => drawCover(v, ...rects[i]));
   const k = Math.min(W, H) / 720;   // размер надписей под формат
+  tiles = shown.map((t, i) => ({ t, r: rects[i] }));   // для нажатия на окно
+  if (state !== 'export') {   // подписи и рамка выбранного — только на экране, в готовое видео не идут
+    g.font = `${22 * k}px system-ui`; g.textAlign = 'left';
+    for (const { t, r: [x, y, w, h] } of tiles) {
+      const label = t.name, tw = g.measureText(label).width;
+      g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(x + 8 * k, y + h - 40 * k, tw + 16 * k, 32 * k);
+      g.fillStyle = '#fff'; g.fillText(label, x + 16 * k, y + h - 16 * k);
+      if (t.id === selectedId) { g.strokeStyle = '#e2b54a'; g.lineWidth = 8 * k; g.strokeRect(x + 4 * k, y + 4 * k, w - 8 * k, h - 8 * k); }
+    }
+  }
   if (showLive && rects.length) {
     const [x, y, w, h] = rects[rects.length - 1];
     g.font = `bold ${28 * k}px system-ui`; g.textAlign = 'left';
@@ -366,7 +384,7 @@ function busy(b) {
   $('#bStop').disabled = !b;
   $('#fPlay').disabled = b; $('#fStop').disabled = !b;
   // у голоса под замком настройки (класс lk) остаются выключенными
-  document.querySelectorAll('#list button, #list input').forEach(e => e.disabled = b || (e.classList.contains('lk') && e.closest('.track').classList.contains('locked')));
+  document.querySelectorAll('.track button, .track input').forEach(e => e.disabled = b || (e.classList.contains('lk') && e.closest('.track').classList.contains('locked')));
   showUndo();
 }
 
@@ -401,7 +419,8 @@ async function undo() {
 }
 
 function renderList() {
-  const box = $('#list'); box.innerHTML = '';
+  const box = $('#list'); box.innerHTML = ''; $('#selSlot').innerHTML = '';
+  if (!tracks.some(t => t.id === selectedId)) selectedId = null;
   tracks.forEach(t => {
     const d = document.createElement('div'); d.className = 'card track' + (t.locked ? ' locked' : '');
     d.innerHTML = `
@@ -451,7 +470,7 @@ function renderList() {
       t.fine = Math.max(-2000, Math.min(2000, t.fine + +b.dataset.d)); fine.value = t.fine; showFine(); save(t);
     });
     d.querySelectorAll('.lk').forEach(e => e.disabled = !!t.locked);
-    box.appendChild(d);
+    (t.id === selectedId ? $('#selSlot') : box).appendChild(d);   // выбранный голос — прямо под видео
     t.wave.width = Math.round(t.wave.clientWidth * (window.devicePixelRatio || 1));
     t.wave.height = Math.round(56 * (window.devicePixelRatio || 1));
   });
@@ -603,7 +622,19 @@ $('#pos').oninput = () => { $('#posV').textContent = mmss(+$('#pos').value); dra
 function setPos(T) {
   $('#pos').value = Math.max(0, Math.min(+$('#pos').max, T)); $('#pos').oninput();
 }
-$('#bUndo').onclick = $('#fUndo').onclick = () => { if (state === 'idle') undo(); };
+// Нажатие на окно видео: карточка этого голоса переезжает под видео; ещё раз — обратно в список
+$('#stage').onclick = e => {
+  const r = $('#stage').getBoundingClientRect(), x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+  const hit = tiles.find(({ r: [tx, ty, tw, th] }) => x >= tx && x < tx + tw && y >= ty && y < ty + th);
+  if (!hit) return;
+  selectedId = selectedId === hit.t.id ? null : hit.t.id;
+  renderList();
+  if (state !== 'idle') busy(true);   // идёт прослушивание — новая карточка тоже заблокирована
+};
+// Круглые кнопки — только когда основные «Слушать / Сохранить» ушли с экрана
+if (window.IntersectionObserver)
+  new IntersectionObserver(([e]) => $('#fab').classList.toggle('away', e.isIntersecting)).observe($('#bPlay'));
+$('#bUndo').onclick = $('#fUndo').onclick =() => { if (state === 'idle') undo(); };
 $('#bHome').onclick = $('#fHome').onclick =() => { if (state === 'play') endPlay(false); setPos(0); };
 // Палец по волне: касание — встать в это место, ведём вбок — волна едет за пальцем, как лента
 function scrubber(cv) {
@@ -808,7 +839,11 @@ $('#bClear').onclick = async () => {
     saved.sort((a, b) => (a.kind === 'audio' ? -1 : 0) - (b.kind === 'audio' ? -1 : 0) || a.id.localeCompare(b.id));
     for (const r of saved) { try { tracks.push(await prepare(r)); } catch (e) {} }
     renderList();
-    if (tracks.length) msg('Загружено голосов: ' + tracks.length);
+    if (tracks.length) {
+      const off = tracks.filter(t => !t.on).length, minus = tracks.filter(t => t.kind === 'audio').length;
+      msg('Загружено дорожек: ' + tracks.length + (minus ? `, из них минусовка: ${minus}` : '') +
+          (off ? `, выключено галочкой: ${off} (их нет в видео)` : '') + '. Нажмите на окно видео — его настройки появятся здесь.');
+    }
   } catch (e) { msg('Не открылось сохранённое: ' + e.message); }
 })();
 </script>
