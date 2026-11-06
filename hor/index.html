@@ -68,6 +68,8 @@
   #ed .edZoom button { font-size:22px; }
   #crop { position:fixed; inset:0; z-index:20; background:#2b2520; color:#fff; overflow:auto; padding:12px 16px calc(16px + env(safe-area-inset-bottom)); }
   #crop[hidden] { display:none; }
+  #title { border:2px solid var(--acc); font-weight:600; }   /* имя файла — заметно, чтобы не забыть */
+  #rowHBox { margin:6px 0 0; }
   #crop .edTop { display:flex; align-items:center; gap:10px; } #crop .edTop b { flex:1; font-size:19px; }
   #crop .hint { color:#d8cbb5; }
   #cropCv { width:100%; height:62vh; display:block; touch-action:none; margin:6px 0; }
@@ -76,10 +78,11 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.4</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.5</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
+  <label class="hint pos" id="rowHBox">высота окон: ниже <input id="rowH" type="range" min="0" max="1" step="0.02" value="0.75"> выше</label>
   <div id="selSlot"></div>
   <div id="msg"></div>
 
@@ -92,7 +95,6 @@
     <label><input id="metOn" type="checkbox"> 🥁 Метроном</label>
     <input id="bpm" type="number" min="30" max="240" step="1" value="80" inputmode="numeric"> <span class="hint">ударов в минуту</span>
     <label class="hint">тише <input id="metVol" type="range" min="0.02" max="0.5" step="0.02" value="0.1" style="width:90px;vertical-align:middle"> громче</label>
-    <button id="bSet" class="tiny" title="Открыть настройки">⚙️ Настройки</button>
   </div>
   <div class="row">
     <button id="bPlay" class="go">▶ Слушать всё</button>
@@ -104,30 +106,9 @@
     <button id="bTrim" class="tiny" title="Обрезать начало и конец всей песни">✂ Обрезать</button></label>
   <div class="hint" id="trimV"></div>
   <div class="row">
-    <select id="fmt" title="Формат видео">
-      <option value="story">Stories / Reels — 9:16 (1080×1920)</option>
-      <option value="post">Пост Instagram — 4:5 (1080×1350)</option>
-      <option value="square">Квадрат — 1:1 (1080×1080)</option>
-      <option value="wide">Широкий, YouTube — 16:9 (1920×1080)</option>
-    </select>
-    <input id="title" type="text" placeholder="Название видео (для имени файла)">
-    <select id="q" title="Качество готового видео">
-      <option value="1">Качество: высокое (1080)</option>
-      <option value="0.6667">Качество: среднее (720)</option>
-      <option value="0.5">Качество: пробное (540, быстро)</option>
-    </select>
+    <input id="title" type="text" placeholder="✎ Назовите видео (имя файла)">
+    <button id="bSet" class="tiny" title="Формат, качество, окна, головы и остальное">⚙️ Настройки</button>
   </div>
-  <div class="row">
-    <select id="lay" title="Как расставить окна">
-      <option value="grid">Окна: сетка сама</option>
-      <option value="row">Все в один ряд</option>
-      <option value="c2">По 2 в ряд</option>
-      <option value="c3">По 3 в ряд</option>
-      <option value="c4">По 4 в ряд</option>
-      <option value="c5">По 5 в ряд</option>
-    </select>
-    <button id="bFaces" title="Найти лица и выставить головы одного размера и на одной высоте">🙂 Выровнять головы</button></div>
-  <label class="hint pos" id="rowHBox">высота окон: ниже <input id="rowH" type="range" min="0" max="1" step="0.02" value="0.75"> выше</label>
   <div id="out"></div>
   <div id="outMore"></div>
 
@@ -135,6 +116,34 @@
 
   <details id="setBox">
     <summary>⚙️ Настройки</summary>
+    <div class="card">
+      <b>Готовое видео</b>
+      <div class="row">
+        <select id="fmt" title="Формат видео">
+          <option value="story">Stories / Reels — 9:16 (1080×1920)</option>
+          <option value="post">Пост Instagram — 4:5 (1080×1350)</option>
+          <option value="square">Квадрат — 1:1 (1080×1080)</option>
+          <option value="wide">Широкий, YouTube — 16:9 (1920×1080)</option>
+        </select>
+        <select id="q" title="Качество готового видео">
+          <option value="1">Качество: высокое (1080)</option>
+          <option value="0.6667">Качество: среднее (720)</option>
+          <option value="0.5">Качество: пробное (540, быстро)</option>
+        </select>
+      </div>
+      <div class="row">
+        <select id="lay" title="Как расставить окна">
+          <option value="grid">Окна: сетка сама</option>
+          <option value="row">Все в один ряд</option>
+          <option value="c2">По 2 в ряд</option>
+          <option value="c3">По 3 в ряд</option>
+          <option value="c4">По 4 в ряд</option>
+          <option value="c5">По 5 в ряд</option>
+        </select>
+        <button id="bFaces" title="Найти лица и выставить головы одного размера и на одной высоте">🙂 Выровнять головы</button>
+      </div>
+      <div class="hint">«Все в один ряд» — под видео появится ползунок «высота окон»: двигайте и сразу смотрите.</div>
+    </div>
     <div class="card">
       <b>Подстройка задержки</b>
       <div class="hint">Если новые голоса отстают от старых — сделайте это один раз. Наушники вставлены, громкость побольше,
@@ -224,9 +233,10 @@
       </ul>
       <b>Сохранение</b>
       <ul>
-        <li>Выбрать формат (Stories 9:16, пост 4:5, квадрат, YouTube 16:9) и написать название.</li>
+        <li>Написать название видео (поле с красной рамкой — это имя файла). Формат (Stories 9:16, пост 4:5, квадрат, YouTube 16:9),
+          качество и расстановка окон — в ⚙️ Настройках, «Готовое видео».</li>
         <li>Качество: высокое (1080) — для публикации; среднее (720); пробное (540) — быстро посмотреть, что получится.</li>
-        <li>Расстановка окон: сетка сама, все в один ряд (ползунок «высота окон»: ниже — меньше обрезано, больше фона), по 2…5 в ряд.
+        <li>Расстановка окон: сетка сама, все в один ряд (ползунок «высота окон» прямо под видео: ниже — меньше обрезано, больше фона), по 2…5 в ряд.
           Пустые места заливаются размытым фоном из цветов самих видео.</li>
         <li>🙂 Выровнять головы — программа находит лица и делает головы одного размера и на одной высоте
           (первый раз грузит около 10 МБ с нашего же сайта, потом из памяти). Потом при смене расстановки и формата подстраиваются сами.</li>
