@@ -76,7 +76,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.3</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.4</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -175,10 +175,10 @@
   <details>
     <summary>💡 Заметки и идеи</summary>
     <div class="card">
-      <div class="hint">Что угодно: слова, кто какой голос поёт, что улучшить в программе. Сохраняется само.</div>
+      <div class="hint">Что угодно: слова, кто какой голос поёт, что улучшить в программе. Сохраняется само. Идею для Влада — «📤 Отправить» и выбрать, куда: Telegram, WhatsApp, MAX…</div>
       <textarea id="notes" rows="7" placeholder="Например: «Тихая ночь» — второй голос на терцию ниже…"></textarea>
-      <div class="row"><button id="bSendNotes">📤 Отправить (Telegram и др.)</button><button id="bSaveNotes">⬇ Сохранить файлом</button></div>
-      <div class="hint">Без Telegram: «⬇ Сохранить файлом» — файл ляжет в «Загрузки» планшета, его можно отправить почтой, в WhatsApp или как удобно.</div>
+      <div class="row"><button id="bSendNotes">📤 Отправить (Telegram, WhatsApp, MAX…)</button><button id="bSaveNotes">⬇ Сохранить файлом</button></div>
+      <div class="hint">«⬇ Сохранить файлом» — файл ляжет в «Загрузки», его можно переслать позже.</div>
       <div id="notesOut"></div>
       <div id="notesMsg" class="hint"></div>
     </div>
@@ -1179,7 +1179,7 @@ function offerFile(box, file, report) {
   a.textContent = '⬇ Скачать ' + file.name;
   box.appendChild(a);
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    const b = document.createElement('button'); b.textContent = '📤 Отправить (Telegram и др.)'; b.style.marginTop = '8px';
+    const b = document.createElement('button'); b.textContent = '📤 Отправить (Telegram, WhatsApp, MAX…)'; b.style.marginTop = '8px';
     b.onclick = () => navigator.share({ files: [file] }).catch(e => {
       if (e.name !== 'AbortError') report('Не отправилось: ' + e.name + ' ' + e.message + '. Скачайте файл и отправьте из Telegram.');
     });
