@@ -52,7 +52,7 @@
                 background:rgba(93,123,79,.82); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #fab #fStop, #fab #fHome { background:rgba(58,49,40,.75); }
   #fab #fUndo { background:rgba(181,82,59,.8); }
-  #fab.away { display:none; }   /* основные кнопки на экране — круглые не нужны и не закрывают их */
+  #fab { opacity:.6; } #fab:active { opacity:1; }   /* всегда на месте, но не закрывают то, что под ними */
   h1 { white-space:nowrap; }
   h1 .ver { font-size:12px; font-weight:400; color:#b9a88c; margin-left:6px; }
   #selSlot .track { border:2px solid #e2b54a; margin-top:8px; }
@@ -76,7 +76,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.1</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.2</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -92,6 +92,7 @@
     <label><input id="metOn" type="checkbox"> 🥁 Метроном</label>
     <input id="bpm" type="number" min="30" max="240" step="1" value="80" inputmode="numeric"> <span class="hint">ударов в минуту</span>
     <label class="hint">тише <input id="metVol" type="range" min="0.02" max="0.5" step="0.02" value="0.1" style="width:90px;vertical-align:middle"> громче</label>
+    <button id="bSet" class="tiny" title="Открыть настройки">⚙️ Настройки</button>
   </div>
   <div class="row">
     <button id="bPlay" class="go">▶ Слушать всё</button>
@@ -132,7 +133,7 @@
 
   <div id="list"></div>
 
-  <details>
+  <details id="setBox">
     <summary>⚙️ Настройки</summary>
     <div class="card">
       <b>Подстройка задержки</b>
@@ -205,7 +206,7 @@
       <b>Проверка и подгонка</b>
       <ul>
         <li>«▶ Слушать всё», ⏮ — на начало. Ползунок «с места» или палец по волне голоса — слушать с середины.
-          Круглые кнопки справа внизу — то же самое, не листая наверх.</li>
+          Круглые кнопки справа внизу (всегда на экране) — то же самое, не листая наверх: ↶ отменить, ⏮ на начало, ▶ слушать, ■ стоп.</li>
         <li>Нажать на окно видео — настройки этого голоса появятся прямо под видео; ещё раз — уберутся обратно.</li>
         <li>У каждого голоса: ▶ — послушать только его, ⟳ — перезаписать, ✕ — удалить, нажать на имя — переименовать.</li>
         <li>🎯 у голоса — выровнять его по первому голосу автоматически (сравнивает вступления). Послушать; не понравилось — ↶.</li>
@@ -1040,8 +1041,11 @@ function stageTouch() { $('#stage').style.touchAction = frameable() ? 'none' : '
   st.onpointerup = up; st.onpointercancel = up;
 })();
 // Круглые кнопки — только когда основные «Слушать / Сохранить» ушли с экрана
-if (window.IntersectionObserver)
-  new IntersectionObserver(([e]) => $('#fab').classList.toggle('away', e.isIntersecting)).observe($('#bPlay'));
+// ⚙️ рядом с метрономом — раскрыть настройки и прокрутить к ним (ещё раз — закрыть)
+$('#bSet').onclick = () => {
+  const d = $('#setBox'); d.open = !d.open;
+  if (d.open) d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
 $('#bUndo').onclick = $('#fUndo').onclick =() => { if (state === 'idle') undo(); };
 $('#bHome').onclick = $('#fHome').onclick =() => { if (state === 'play') endPlay(false); setPos(range()[0]); };
 // Палец по волне: касание — встать в это место, ведём вбок — волна едет за пальцем, как лента
