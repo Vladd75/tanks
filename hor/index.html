@@ -76,7 +76,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.2</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.3</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -151,12 +151,14 @@
       <b>Видео каждого голоса отдельно</b>
       <div class="hint">Каждый включённый голос — своим файлом: одно окно на весь кадр, звук только этого голоса, качество и формат — как выбраны выше.
         Песня проиграется столько раз, сколько голосов. Один голос — кнопка 🎬 у него в карточке.</div>
-      <div class="row"><button id="bExportEach">🎬 Сохранить все голоса по отдельности</button></div>
+      <div id="eachList" class="row"></div>
+      <div class="row"><button id="bExportEach">🎬 Сохранить отмеченные по отдельности</button></div>
     </div>
     <div class="card">
-      <b>Минусовка</b>
-      <div class="hint">Музыкальный файл, под который петь. Добавляется первой дорожкой (без картинки).</div>
-      <input id="fMinus" type="file" accept="audio/*">
+      <b>Минусовка или готовое видео</b>
+      <div class="hint">Музыкальный файл — минусовка, первой дорожкой без картинки. <b>Видео</b> (например, песня, спетая
+        в этой программе на другом телефоне) — добавится голосом с картинкой: под него можно петь второй голос.</div>
+      <input id="fMinus" type="file" accept="audio/*,video/*">
     </div>
     <div class="card">
       <b>Проект файлом (резервная копия)</b>
@@ -232,7 +234,9 @@
           двумя пальцами — больше/меньше (только пропорционально), «✓ Готово». Под замком 🔒 — сначала открыть замок.</li>
         <li>Громкость голосов подтягивается сама до нормальной, ползунок «громкость» — подправить поверх.</li>
         <li>«🎬 Сохранить видео» — песня проиграется целиком, экран не выключать. Потом «⬇ Скачать» или «📤 Отправить».</li>
-        <li>🎬 у голоса — видео только этого голоса (одно окно во весь кадр, звук только его). Все голоса по отдельности сразу — ⚙️ Настройки.</li>
+        <li>Видео из этой программы с другого телефона (например, песня одним голосом) — ⚙️ Настройки → «Минусовка или готовое видео»:
+          добавится голосом с картинкой, под него можно записать второй голос.</li>
+        <li>🎬 у голоса — видео только этого голоса (одно окно во весь кадр, звук только его). Несколько по отдельности — ⚙️ Настройки: галочками отметить, какие.</li>
         <li>💾 — сохранить весь проект файлом (резервная копия).</li>
       </ul>
       <div class="hint">Голоса хранятся в Chrome на этом устройстве и не пропадают при закрытии. <b>Не чистить данные Chrome</b> — всё пропадёт;
@@ -352,7 +356,7 @@ function showLat() { $('#lat').value = getLat(); $('#latV').textContent = getLat
 // ---------- дорожки ----------
 let tracks = [];   // {id, kind:'video'|'audio', name, blob, base, fine, vol, on, buffer, video}
 const offsetOf = t => t.base + t.fine / 1000;   // сколько секунд пропустить в начале клипа
-function save(t) { return DB.put({ id: t.id, kind: t.kind, name: t.name, blob: t.blob, base: t.base, fine: t.fine, vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, frame: t.frame, face: t.face, frameAuto: !!t.frameAuto }); }
+function save(t) { return DB.put({ id: t.id, kind: t.kind, name: t.name, blob: t.blob, base: t.base, fine: t.fine, vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, frame: t.frame, face: t.face, frameAuto: !!t.frameAuto, plain: !!t.plain }); }
 
 // Автоуровень: микрофон пишется «как есть» и на планшете тихо (было −31 дБ в пике). Каждый голос подтягиваем
 // до одной громкости: по «почти самому громкому» месту (99,9 %, чтобы стук по микрофону не решал), до 0,4.
@@ -533,7 +537,7 @@ function cropOf(v, w, h, fr) {
 // дешёвое для планшета (обычный blur на весь кадр 30 раз в секунду он не потянет)
 const tiny = document.createElement('canvas'), tg = tiny.getContext('2d');
 const bgCache = new WeakMap();   // у каждого видео свой готовый размытый фон: пересчитываем раз в 4 кадра, фон и так мутный
-function drawBlur(v, [x, y, w, h], fr) {
+function drawBlur(v, [x, y, w, h], fr, plain) {
   if (!v.videoWidth) return;
   let b = bgCache.get(v);
   if (!b) { b = { cv: document.createElement('canvas'), n: 0 }; bgCache.set(v, b); }
@@ -545,13 +549,14 @@ function drawBlur(v, [x, y, w, h], fr) {
     mg.filter = 'blur(6px)'; mg.drawImage(tiny, -6, -6, b.cv.width + 12, b.cv.height + 12);   // смягчаем «квадратики» на маленьком холсте
   }
   g.save(); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  g.translate(x + w, y); g.scale(-1, 1); g.drawImage(b.cv, 0, 0, w, h); g.restore();
+  if (plain) g.translate(x, y); else { g.translate(x + w, y); g.scale(-1, 1); }
+  g.drawImage(b.cv, 0, 0, w, h); g.restore();
   g.fillStyle = 'rgba(30,24,20,.25)'; g.fillRect(x, y, w, h);
 }
-function drawCover(v, x, y, w, h, fr) {
+function drawCover(v, x, y, w, h, fr, plain) {
   if (!v.videoWidth) return;
   const c = cropOf(v, w, h, fr);
-  g.save(); g.translate(x + w, y); g.scale(-1, 1);     // зеркально, как в селфи
+  g.save(); if (plain) g.translate(x, y); else { g.translate(x + w, y); g.scale(-1, 1); }   // зеркально, как в селфи (готовое видео — как есть)
   g.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, w, h);
   g.restore();
 }
@@ -593,8 +598,8 @@ function draw() {
   const showLive = cam && state !== 'export' && state !== 'play' && vids.length < MAX_TRACKS;
   const all = showLive ? [...vids, $('#live')] : vids;
   const rects = layout(all.length);
-  all.forEach((v, i) => { if (rects[i].bg) drawBlur(v, rects[i].bg, shown[i] && shown[i].frame); });
-  all.forEach((v, i) => drawCover(v, ...rects[i], shown[i] && shown[i].frame));
+  all.forEach((v, i) => { if (rects[i].bg) drawBlur(v, rects[i].bg, shown[i] && shown[i].frame, shown[i] && shown[i].plain); });
+  all.forEach((v, i) => drawCover(v, ...rects[i], shown[i] && shown[i].frame, shown[i] && shown[i].plain));
   const k = Math.min(W, H) / 720;   // размер надписей под формат
   tiles = shown.map((t, i) => ({ t, r: rects[i] }));   // для нажатия на окно
   if (state !== 'export') {   // подписи и рамка выбранного — только на экране, в готовое видео не идут
@@ -739,7 +744,7 @@ function renderList() {
     t.wave.height = Math.round(56 * (window.devicePixelRatio || 1));
   });
   $('#pos').max = Math.max(1, songLength());
-  drawWaves(); showTrim(); stageTouch();
+  drawWaves(); showTrim(); stageTouch(); renderEach();
 }
 
 // ---------- волны голосов: один и тот же отрезок песни у всех, чтобы вступления стояли в линию ----------
@@ -1029,7 +1034,7 @@ function stageTouch() { $('#stage').style.touchAction = frameable() ? 'none' : '
     if (pts.size === 2 && pinch) fr.z = Math.max(1, Math.min(5, pinch.z * dist() / pinch.d));
     else {
       const c = cropOf(v, w, hh, fr);   // картинка зеркальная: палец вправо — центр кадра правее в исходнике
-      fr.cx = c.sx / v.videoWidth + c.sw / v.videoWidth / 2 + dx / (c.s * v.videoWidth);
+      fr.cx = c.sx / v.videoWidth + c.sw / v.videoWidth / 2 + (t.plain ? -dx : dx) / (c.s * v.videoWidth);
       fr.cy = c.sy / v.videoHeight + c.sh / v.videoHeight / 2 - dy / (c.s * v.videoHeight);
     }
   };
@@ -1135,13 +1140,27 @@ function soloBox(t) {
   if (!b) { b = document.createElement('div'); b.dataset.id = t.id; $('#outMore').appendChild(b); }
   return b;
 }
-function exportSolo(t) {
-  if (!heard(t)) { msg(`«${t.name}» выключен галочкой — включите его.`); return Promise.resolve(false); }
-  return exportVideo(x => x === t, soloBox(t), '_' + (latin(t.name) || 'golos'), ` «${t.name}»`);
+async function exportSolo(t) {
+  const was = t.on; t.on = true;   // выключенный голос тоже можно сохранить отдельно
+  try { return await exportVideo(x => x === t, soloBox(t), '_' + (latin(t.name) || 'golos'), ` «${t.name}»`); }
+  finally { t.on = was; }
+}
+// Галочки «какие голоса сохранять» — по одной на голос с видео; сначала отмечены включённые
+const eachSkip = new Set();   // id голосов, с которых сняли галочку (пока страница открыта)
+function renderEach() {
+  const box = $('#eachList'); box.innerHTML = '';
+  for (const t of tracks.filter(x => x.video)) {
+    const l = document.createElement('label'); l.style.cssText = 'display:flex;gap:6px;align-items:center;margin-right:12px';
+    const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !eachSkip.has(t.id) && t.on;
+    c.onchange = () => { if (c.checked) eachSkip.delete(t.id); else eachSkip.add(t.id); };
+    c.dataset.id = t.id; l.append(c, t.name); box.appendChild(l);
+  }
+  if (!box.children.length) box.innerHTML = '<span class="hint">Пока нет голосов с видео.</span>';
 }
 $('#bExportEach').onclick = async () => {
-  const list = tracks.filter(t => t.video && heard(t));
-  if (!list.length) return msg('Нет включённых голосов с видео.');
+  const ids = [...document.querySelectorAll('#eachList input:checked')].map(c => c.dataset.id);
+  const list = tracks.filter(t => t.video && t !== replacing && ids.includes(t.id));
+  if (!list.length) return msg('Отметьте галочками, какие голоса сохранить.');
   const [a, b] = range();
   if (!confirm(`Сохранить ${list.length} видео по отдельности? Песня проиграется ${list.length} раз(а), около ${Math.ceil(list.length * (b - a) / 60)} мин. Экран не выключать.`)) return;
   $('#outMore').innerHTML = '';
@@ -1175,7 +1194,7 @@ function saveProject(box, where) {
   const head = JSON.stringify({
     app: 'hor', v: 2, lat: getLat(), trim: [songIn, songOut], lay: $('#lay').value, rowH: +$('#rowH').value, fmt: $('#fmt').value, title: $('#title').value, notes: $('#notes').value,
     bpm: +$('#bpm').value, tracks: tracks.map(t => ({ id: t.id, kind: t.kind, name: t.name, base: t.base, fine: t.fine,
-                                                      vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, frame: t.frame, face: t.face, frameAuto: !!t.frameAuto, type: t.blob.type, size: t.blob.size })),
+                                                      vol: t.vol, on: t.on, locked: !!t.locked, pre: t.pre, mutes: t.mutes, frame: t.frame, face: t.face, frameAuto: !!t.frameAuto, plain: !!t.plain, type: t.blob.type, size: t.blob.size })),
   });
   const file = new File([PROJ_MAGIC, head, '\n', ...tracks.map(t => t.blob)], fileName('_proekt', 'horproj'), { type: 'application/octet-stream' });
   offerFile(box, file, msg);
@@ -1556,8 +1575,10 @@ function drawCrop() {
   if (!crop.t) return;
   const cv = $('#cropCv'), x = cv.getContext('2d'), v = crop.t.video, { s, ox, oy } = cropView(), vw = v.videoWidth, vh = v.videoHeight;
   x.fillStyle = '#2b2520'; x.fillRect(0, 0, cv.width, cv.height);
-  x.save(); x.translate(ox + vw * s, oy); x.scale(-1, 1); x.drawImage(v, 0, 0, vw * s, vh * s); x.restore();   // зеркально, как в видео
-  const c = cropOf(v, crop.w, crop.h, crop.t.frame), rx = ox + (vw - c.sx - c.sw) * s, ry = oy + c.sy * s, rw = c.sw * s, rh = c.sh * s;
+  const pl = crop.t.plain;
+  x.save(); if (pl) x.translate(ox, oy); else { x.translate(ox + vw * s, oy); x.scale(-1, 1); }   // зеркально, как в видео
+  x.drawImage(v, 0, 0, vw * s, vh * s); x.restore();
+  const c = cropOf(v, crop.w, crop.h, crop.t.frame), rx = ox + (pl ? c.sx : vw - c.sx - c.sw) * s, ry = oy + c.sy * s, rw = c.sw * s, rh = c.sh * s;
   x.fillStyle = 'rgba(0,0,0,.55)';   // всё, что за рамкой, — притушено
   x.fillRect(ox, oy, vw * s, ry - oy); x.fillRect(ox, ry + rh, vw * s, oy + vh * s - ry - rh);
   x.fillRect(ox, ry, rx - ox, rh); x.fillRect(rx + rw, ry, ox + vw * s - rx - rw, rh);
@@ -1590,7 +1611,7 @@ const curFrame = () => ({ ...(crop.t.frame || { z: 1, cx: 0.5, cy: 0.5 }) });
     p.x = e.clientX; p.y = e.clientY;
     const fr = curFrame();
     if (pts.size === 2 && pinch) fr.z = pinch.z * pinch.d / dist();   // раздвинуть пальцы — рамка больше
-    else if (pts.size === 1) { const { s } = cropView(), v = crop.t.video; fr.cx -= dx / s / v.videoWidth; fr.cy += dy / s / v.videoHeight; }   // видео зеркальное
+    else if (pts.size === 1) { const { s } = cropView(), v = crop.t.video; fr.cx += (crop.t.plain ? dx : -dx) / s / v.videoWidth; fr.cy += dy / s / v.videoHeight; }   // видео зеркальное
     else return;
     setCrop(fr);
   };
@@ -1610,10 +1631,22 @@ window.addEventListener('resize', () => { if (crop.t) fitCrop(); });
 // ---------- минусовка и очистка ----------
 $('#fMinus').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  msg('Загружаю минусовку…');
+  const isVideo = /^video\//.test(f.type) || /\.(mp4|webm|mov|3gp)$/i.test(f.name);
+  const name = f.name.replace(/\.[^.]+$/, '').replace(/_\d{4}-\d\d-\d\d_\d\d-\d\d$/, '').replace(/^hor_/, '') || 'Видео';
+  msg(isVideo ? 'Загружаю видео…' : 'Загружаю минусовку…');
   try {
-    const t = await prepare({ id: Date.now() + '', kind: 'audio', name: f.name.replace(/\.[^.]+$/, ''), blob: f, base: 0, fine: 0, vol: 0.8, on: true });
-    tracks.unshift(t); await save(t); renderList(); msg('Минусовка добавлена.');
+    if (isVideo) {
+      if (tracks.filter(t => t.kind === 'video').length >= MAX_TRACKS) throw new Error('больше 9 голосов не поместится');
+      // Готовое видео уже зеркальное и начинается ровно с песни: сдвиг 0, рисуем как есть (plain)
+      const t = await prepare({ id: Date.now() + '', kind: 'video', name, blob: f, base: 0, fine: 0, vol: 1, on: true, plain: true });
+      await new Promise(r => t.video.readyState >= 1 ? r() : t.video.addEventListener('loadedmetadata', r, { once: true }));
+      if (!t.video.videoWidth) { dispose(t); throw new Error('в файле нет картинки'); }
+      tracks.push(t); await save(t); renderList();
+      msg(`Видео «${name}» добавлено голосом. Теперь «● Записать голос» — и пойте под него.`);
+    } else {
+      const t = await prepare({ id: Date.now() + '', kind: 'audio', name, blob: f, base: 0, fine: 0, vol: 0.8, on: true });
+      tracks.unshift(t); await save(t); renderList(); msg('Минусовка добавлена.');
+    }
   } catch (err) { msg('Этот файл не открылся: ' + err.message); }
   e.target.value = '';
 };
