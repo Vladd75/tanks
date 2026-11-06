@@ -70,6 +70,12 @@
   #crop[hidden] { display:none; }
   #title { border:2px solid var(--acc); font-weight:600; }   /* имя файла — заметно, чтобы не забыть */
   #rowHBox { margin:6px 0 0; }
+  /* Замочек кадра поверх видео: закрыт — палец по видео листает страницу, открыт — двигает лица в окнах */
+  #stageWrap { position:relative; width:fit-content; max-width:100%; margin:0 auto; }
+  #bFrame { position:absolute; top:8px; left:50%; transform:translateX(-50%); width:52px; height:52px; min-height:0; padding:0;
+            border-radius:50%; font-size:24px; background:rgba(30,24,20,.45); box-shadow:none; opacity:.75; flex:none; }
+  #bFrame.on { background:rgba(226,181,74,.85); opacity:1; }
+  #stageWrap.edit #stage { outline:4px solid #e2b54a; outline-offset:-2px; }
   /* узкий телефон: ничего не должно раздвигать страницу вбок (иначе и круглые кнопки уезжают за край) */
   html, body { overflow-x:hidden; }
   .pos input { min-width:0; } .pos .lbl { white-space:nowrap; }
@@ -87,10 +93,11 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.6</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.7</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
-  <canvas id="stage" width="1080" height="1080"></canvas>
+  <div id="stageWrap"><canvas id="stage" width="1080" height="1080"></canvas>
+    <button id="bFrame" title="Кадр: открыть — двигать лица пальцем, закрыть — листать страницу">🔒</button></div>
   <label class="hint pos" id="rowHBox">высота окон: ниже <input id="rowH" type="range" min="0" max="1" step="0.02" value="0.75"> выше</label>
   <div id="selSlot"></div>
   <div id="msg"></div>
@@ -250,6 +257,8 @@
           Пустые места заливаются размытым фоном из цветов самих видео.</li>
         <li>🙂 Выровнять головы — программа находит лица и делает головы одного размера и на одной высоте
           (первый раз грузит около 10 МБ с нашего же сайта, потом из памяти). Потом при смене расстановки и формата подстраиваются сами.</li>
+        <li>Подвинуть лицо прямо на видео — замочек 🔒 вверху посередине видео: нажать (🔓, видео в жёлтой рамке) — пальцем двигать лицо
+          в любом окне, двумя пальцами — увеличить; ещё раз нажать — закрыть, и палец по видео снова листает страницу.</li>
         <li>Кадр вручную — ⬚ у голоса: видно всё видео, жёлтая рамка — то, что попадёт в окно. Рамку двигать пальцем,
           двумя пальцами — больше/меньше (только пропорционально), «✓ Готово». Под замком 🔒 — сначала открыть замок.</li>
         <li>Громкость голосов подтягивается сама до нормальной, ползунок «громкость» — подправить поверх.</li>
@@ -1022,22 +1031,33 @@ $('#stage').onclick = e => {
   selectedId = selectedId === hit.t.id ? null : hit.t.id;
   renderList();
   if (state !== 'idle') busy(true);   // идёт прослушивание — новая карточка тоже заблокирована
-  const t = frameable();
-  if (t) msg(`«${t.name}»: кадр — кнопка ⬚ у голоса (рамкой), или прямо здесь пальцем, двумя пальцами — увеличить. ↶ — отменить.`);
-  else if (selectedId && hit.t.locked) msg(`«${hit.t.name}» под замком 🔒 — откройте замок, чтобы поправить кадр.`);
+  if (selectedId && !frameEdit) msg(`«${hit.t.name}»: кадр — 🔒 вверху на видео (открыть и двигать пальцем) или ⬚ у голоса (рамкой).`);
 };
-// Кадр выбранного голоса правится пальцами прямо на видео — если голос не под замком
-function frameable() {
-  const t = tracks.find(x => x.id === selectedId);
-  return t && t.video && !t.locked && (state === 'idle' || state === 'play') ? t : null;
+// Замочек кадра вверху на видео. Открыт — палец двигает картинку в том окне, где лежит, два пальца — увеличить;
+// закрыт — палец по видео просто листает страницу (на телефоне видео бывает во весь экран).
+let frameEdit = false;
+function setFrameEdit(on) {
+  frameEdit = on;
+  $('#bFrame').textContent = on ? '🔓' : '🔒'; $('#bFrame').classList.toggle('on', on);
+  $('#stageWrap').classList.toggle('edit', on); stageTouch();
+  msg(on ? 'Кадр открыт: двигайте пальцем лицо в любом окне, двумя пальцами — увеличить. Закончили — снова нажмите замочек. ↶ — отменить.' : '');
 }
-function stageTouch() { $('#stage').style.touchAction = frameable() ? 'none' : ''; }   // иначе палец листает страницу
+$('#bFrame').onclick = () => setFrameEdit(!frameEdit);
+const canFrame = () => frameEdit && (state === 'idle' || state === 'play');
+function stageTouch() { $('#stage').style.touchAction = canFrame() ? 'none' : ''; }   // иначе палец листает страницу
 (() => {
   const st = $('#stage'), pts = new Map(); let pinch = null, moved = false, t = null;
   const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
   const tileOf = t => tiles.find(h => h.t === t);
   st.onpointerdown = e => {
-    t = frameable(); if (!t || !tileOf(t)) return;
+    if (!canFrame()) return;
+    if (!pts.size) {   // первый палец выбирает окно, в котором лежит
+      const r = st.getBoundingClientRect(), x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+      const hit = tiles.find(({ r: [tx, ty, tw, th] }) => x >= tx && x < tx + tw && y >= ty && y < ty + th);
+      t = hit && hit.t.video ? hit.t : null; if (!t) return;
+      if (t.locked) { msg(`«${t.name}» под замком 🔒 в карточке голоса — откройте его там, чтобы поправить кадр.`); t = null; return; }
+    }
+    if (!t || !tileOf(t)) return;
     try { st.setPointerCapture(e.pointerId); } catch (er) {}
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
     if (pts.size === 1) moved = false;
@@ -1061,6 +1081,7 @@ function stageTouch() { $('#stage').style.touchAction = frameable() ? 'none' : '
   const up = e => {
     if (!pts.delete(e.pointerId)) return;
     if (pts.size < 2) pinch = null;
+    if (!pts.size && !moved) t = null;
     if (!pts.size && moved && t) { dragged = true; save(t); setTimeout(() => dragged = false, 400); }
   };
   st.onpointerup = up; st.onpointercancel = up;
