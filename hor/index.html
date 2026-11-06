@@ -70,6 +70,15 @@
   #crop[hidden] { display:none; }
   #title { border:2px solid var(--acc); font-weight:600; }   /* имя файла — заметно, чтобы не забыть */
   #rowHBox { margin:6px 0 0; }
+  /* узкий телефон: ничего не должно раздвигать страницу вбок (иначе и круглые кнопки уезжают за край) */
+  html, body { overflow-x:hidden; }
+  .pos input { min-width:0; } .pos .lbl { white-space:nowrap; }
+  #bTrim { font-size:14px; padding:8px 10px; white-space:nowrap; }
+  button.gear { display:flex; flex-direction:column; align-items:center; gap:0; font-size:12px; line-height:1.1; padding:4px 10px; min-height:46px; margin-left:auto; }
+  button.gear span { font-size:24px; line-height:1; }
+  .track input[type=range] { min-width:0; }
+  select { min-width:0; max-width:100%; }
+  @media (max-width:420px) { .pos .lbl { display:none; } .track .fineV { min-width:0; font-size:12px; } }
   #crop .edTop { display:flex; align-items:center; gap:10px; } #crop .edTop b { flex:1; font-size:19px; }
   #crop .hint { color:#d8cbb5; }
   #cropCv { width:100%; height:62vh; display:block; touch-action:none; margin:6px 0; }
@@ -78,7 +87,7 @@
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.5</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.6</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -93,7 +102,9 @@
   </div>
   <div class="row metro">
     <label><input id="metOn" type="checkbox"> 🥁 Метроном</label>
-    <input id="bpm" type="number" min="30" max="240" step="1" value="80" inputmode="numeric"> <span class="hint">ударов в минуту</span>
+    <input id="bpm" type="number" min="30" max="240" step="1" value="80" inputmode="numeric">
+    <button id="bSet" class="tiny gear" title="Формат, качество, окна, головы и остальное"><span>⚙️</span>настройки</button>
+    <span class="hint">ударов в минуту</span>
     <label class="hint">тише <input id="metVol" type="range" min="0.02" max="0.5" step="0.02" value="0.1" style="width:90px;vertical-align:middle"> громче</label>
   </div>
   <div class="row">
@@ -102,12 +113,11 @@
     <button id="bSaveProj2" class="tiny" title="Сохранить проект файлом (резервная копия)">💾</button>
     <button id="bUndo" class="tiny" title="Отменить последнее изменение" disabled>↶</button>
   </div>
-  <label class="hint pos"><button id="bHome" class="tiny" title="На начало">⏮</button> с места <input id="pos" type="range" min="0" max="1" step="0.01" value="0"> <span id="posV">0:00</span>
+  <label class="hint pos"><button id="bHome" class="tiny" title="На начало">⏮</button> <span class="lbl">с места</span> <input id="pos" type="range" min="0" max="1" step="0.01" value="0"> <span id="posV">0:00</span>
     <button id="bTrim" class="tiny" title="Обрезать начало и конец всей песни">✂ Обрезать</button></label>
   <div class="hint" id="trimV"></div>
   <div class="row">
     <input id="title" type="text" placeholder="✎ Назовите видео (имя файла)">
-    <button id="bSet" class="tiny" title="Формат, качество, окна, головы и остальное">⚙️ Настройки</button>
   </div>
   <div id="out"></div>
   <div id="outMore"></div>
@@ -233,7 +243,7 @@
       </ul>
       <b>Сохранение</b>
       <ul>
-        <li>Написать название видео (поле с красной рамкой — это имя файла). Формат (Stories 9:16, пост 4:5, квадрат, YouTube 16:9),
+        <li>Написать название видео (поле с красной рамкой — это имя файла). Кнопка ⚙️ — рядом с метрономом. Формат (Stories 9:16, пост 4:5, квадрат, YouTube 16:9),
           качество и расстановка окон — в ⚙️ Настройках, «Готовое видео».</li>
         <li>Качество: высокое (1080) — для публикации; среднее (720); пробное (540) — быстро посмотреть, что получится.</li>
         <li>Расстановка окон: сетка сама, все в один ряд (ползунок «высота окон» прямо под видео: ниже — меньше обрезано, больше фона), по 2…5 в ряд.
