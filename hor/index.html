@@ -19,6 +19,8 @@
   button.big { font-size:19px; font-weight:600; }
   button.rec { background:var(--acc); color:#fff; box-shadow:none; }
   button.go { background:var(--ok); color:#fff; box-shadow:none; }
+  button.peek { background:#4f6f86; color:#fff; box-shadow:none; font-size:15px; }
+  button.peek.on { background:#8aa3b5; }
   button:disabled { opacity:.45; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin:8px 0; }
   .track { display:grid; grid-template-columns:auto 1fr auto; gap:6px 10px; align-items:center; }
@@ -64,11 +66,17 @@
   #edWave { width:100%; height:220px; display:block; border-radius:12px; touch-action:none; margin:6px 0; }
   #ed .edZoom { display:flex; align-items:center; gap:10px; } #ed .edZoom span { flex:1; text-align:center; color:var(--muted); }
   #ed .edZoom button { font-size:22px; }
+  #crop { position:fixed; inset:0; z-index:20; background:#2b2520; color:#fff; overflow:auto; padding:12px 16px calc(16px + env(safe-area-inset-bottom)); }
+  #crop[hidden] { display:none; }
+  #crop .edTop { display:flex; align-items:center; gap:10px; } #crop .edTop b { flex:1; font-size:19px; }
+  #crop .hint { color:#d8cbb5; }
+  #cropCv { width:100%; height:62vh; display:block; touch-action:none; margin:6px 0; }
+  #outMore > div { margin-top:8px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>🎤 Сама себе хор <span class="ver" title="05.11.2026">в. 3.0</span></h1>
+  <h1>🎤 Сама себе хор <span class="ver" title="06.11.2026">в. 3.1</span></h1>
   <div class="hint">🎧 Обязательно в <b>проводных</b> наушниках, иначе в запись попадут прошлые голоса.</div>
 
   <canvas id="stage" width="1080" height="1080"></canvas>
@@ -77,6 +85,7 @@
 
   <div class="row">
     <button id="bRec" class="big rec">● Записать голос</button>
+    <button id="bCam" class="tiny peek" title="Посмотреть себя в камере, ничего не записывая">👁 Просмотр</button>
     <button id="bStop" class="big" disabled>■ Стоп</button>
   </div>
   <div class="row metro">
@@ -91,7 +100,7 @@
     <button id="bUndo" class="tiny" title="Отменить последнее изменение" disabled>↶</button>
   </div>
   <label class="hint pos"><button id="bHome" class="tiny" title="На начало">⏮</button> с места <input id="pos" type="range" min="0" max="1" step="0.01" value="0"> <span id="posV">0:00</span>
-    <button id="bTrim" class="tiny" title="Обрезать начало и конец песни">✂</button></label>
+    <button id="bTrim" class="tiny" title="Обрезать начало и конец всей песни">✂ Обрезать</button></label>
   <div class="hint" id="trimV"></div>
   <div class="row">
     <select id="fmt" title="Формат видео">
@@ -119,6 +128,7 @@
     <button id="bFaces" title="Найти лица и выставить головы одного размера и на одной высоте">🙂 Выровнять головы</button></div>
   <label class="hint pos" id="rowHBox">высота окон: ниже <input id="rowH" type="range" min="0" max="1" step="0.02" value="0.75"> выше</label>
   <div id="out"></div>
+  <div id="outMore"></div>
 
   <div id="list"></div>
 
@@ -130,6 +140,17 @@
         <b>один наушник прижмите к микрофону</b> телефона (низ корпуса) и нажмите кнопку. Будет 6 щелчков.</div>
       <div class="row"><button id="bCal">🎯 Подстроить автоматически</button></div>
       <label class="hint" style="display:flex;gap:8px;align-items:center">Задержка: <input id="lat" type="range" min="0" max="600" step="5" style="flex:1"> <span id="latV"></span></label>
+    </div>
+    <div class="card">
+      <b>Волна-подсказка при записи</b>
+      <div class="hint">Сверху — ближе к камере: глаза смотрят почти в объектив. В готовое видео волна не попадает.</div>
+      <select id="guidePos"><option value="top">Сверху (ближе к камере)</option><option value="bottom">Снизу</option></select>
+    </div>
+    <div class="card">
+      <b>Видео каждого голоса отдельно</b>
+      <div class="hint">Каждый включённый голос — своим файлом: одно окно на весь кадр, звук только этого голоса, качество и формат — как выбраны выше.
+        Песня проиграется столько раз, сколько голосов. Один голос — кнопка 🎬 у него в карточке.</div>
+      <div class="row"><button id="bExportEach">🎬 Сохранить все голоса по отдельности</button></div>
     </div>
     <div class="card">
       <b>Минусовка</b>
@@ -153,7 +174,9 @@
     <div class="card">
       <div class="hint">Что угодно: слова, кто какой голос поёт, что улучшить в программе. Сохраняется само.</div>
       <textarea id="notes" rows="7" placeholder="Например: «Тихая ночь» — второй голос на терцию ниже…"></textarea>
-      <div class="row"><button id="bSendNotes">📤 Отправить (Telegram и др.)</button></div>
+      <div class="row"><button id="bSendNotes">📤 Отправить (Telegram и др.)</button><button id="bSaveNotes">⬇ Сохранить файлом</button></div>
+      <div class="hint">Без Telegram: «⬇ Сохранить файлом» — файл ляжет в «Загрузки» планшета, его можно отправить почтой, в WhatsApp или как удобно.</div>
+      <div id="notesOut"></div>
       <div id="notesMsg" class="hint"></div>
     </div>
   </details>
@@ -173,9 +196,11 @@
       <ol>
         <li>Держать планшет <b>вертикально</b>, чтобы было видно лицо.</li>
         <li>Нет минусовки — включить 🥁 Метроном и задать темп. Щелчки слышны только в наушниках, в видео их не будет. Громко не ставить (ползунок «тише/громче») — микрофон услышит их через наушники.</li>
+        <li>«👁 Просмотр» (синяя кнопка) — посмотреть себя в камере до записи, ничего не записывая. Ещё раз — выключить.</li>
         <li>«● Записать голос» → отсчёт 3-2-1 → петь → «■ Стоп».</li>
-        <li>Следующий голос — снова «● Записать голос». Прошлые голоса звучат в наушниках, а внизу видео бежит их волна:
-          красная линия — «сейчас», справа видно, где скоро вступать. Запись остановится сама в конце песни.</li>
+        <li>Следующий голос — снова «● Записать голос». Прошлые голоса звучат в наушниках, а <b>вверху</b> видео бежит их волна
+          (ближе к камере — глаза смотрят почти в объектив; перенести вниз — ⚙️ Настройки): красная линия — «сейчас»,
+          справа видно, где скоро вступать. Запись остановится сама в конце песни.</li>
       </ol>
       <b>Проверка и подгонка</b>
       <ul>
@@ -188,7 +213,9 @@
           Смотреть на волны: начала звуков у всех голосов должны стоять в одну линию.</li>
         <li>✂ у голоса — заглушить кусок (кашель, ошибка): откроется крупная волна, двумя пальцами — увеличить.
           Красную линию на начало → «Тишина отсюда», на конец → «…досюда». Запись не сдвигается; нажать на серое — вернуть звук.</li>
-        <li>✂ рядом с «с места» — обрезать всю песню: «Начало здесь» и «Конец здесь». Слушать и видео — только этот кусок.</li>
+        <li><b>Убрать паузу в начале и в конце</b> — кнопка «✂ Обрезать» рядом с ползунком «с места» (или внизу экрана ножниц голоса).
+          Видна общая волна всех голосов: красную линию — туда, где песня должна начаться → «⟦ Начало здесь», так же «Конец здесь ⟧».
+          Обрезается сразу вся песня, у всех голосов вместе; слушать и видео — только этот кусок, сами записи целы.</li>
         <li>🔒 — замок: настроенный голос уже не собьёшь случайно. ↶ — отменить последнее, много раз подряд (пока страница открыта).</li>
         <li>Голос со снятой галочкой не звучит и не показывается в видео.</li>
       </ul>
@@ -199,14 +226,16 @@
         <li>Расстановка окон: сетка сама, все в один ряд (ползунок «высота окон»: ниже — меньше обрезано, больше фона), по 2…5 в ряд.
           Пустые места заливаются размытым фоном из цветов самих видео.</li>
         <li>🙂 Выровнять головы — программа находит лица и делает головы одного размера и на одной высоте
-          (нужен интернет, первый раз грузит около 10 МБ). Потом при смене расстановки и формата подстраиваются сами.</li>
-        <li>Кадр вручную: нажать на окно, открыть 🔓 у голоса, пальцем двигать картинку, двумя пальцами — увеличить (только пропорционально).</li>
+          (первый раз грузит около 10 МБ с нашего же сайта, потом из памяти). Потом при смене расстановки и формата подстраиваются сами.</li>
+        <li>Кадр вручную — ⬚ у голоса: видно всё видео, жёлтая рамка — то, что попадёт в окно. Рамку двигать пальцем,
+          двумя пальцами — больше/меньше (только пропорционально), «✓ Готово». Под замком 🔒 — сначала открыть замок.</li>
         <li>Громкость голосов подтягивается сама до нормальной, ползунок «громкость» — подправить поверх.</li>
         <li>«🎬 Сохранить видео» — песня проиграется целиком, экран не выключать. Потом «⬇ Скачать» или «📤 Отправить».</li>
+        <li>🎬 у голоса — видео только этого голоса (одно окно во весь кадр, звук только его). Все голоса по отдельности сразу — ⚙️ Настройки.</li>
         <li>💾 — сохранить весь проект файлом (резервная копия).</li>
       </ul>
       <div class="hint">Голоса хранятся в Chrome на этом устройстве и не пропадают при закрытии. <b>Не чистить данные Chrome</b> — всё пропадёт;
-        для надёжности — 💾. Идеи и пожелания — в «💡 Заметки и идеи» → «📤 Отправить».</div>
+        для надёжности — 💾. Идеи и пожелания — в «💡 Заметки и идеи» → «📤 Отправить» или «⬇ Сохранить файлом» (без Telegram).</div>
     </div>
   </details>
 </main>
@@ -220,6 +249,14 @@
   <div class="row"><button id="edA"></button><button id="edB"></button></div>
   <div id="edMsg"></div>
   <div class="row"><button id="edReset"></button></div>
+  <div class="row"><button id="edSong">✂ Обрезать всю песню (начало и конец)</button></div>
+</div>
+<!-- Кадр вручную: всё видео голоса, жёлтая рамка — то, что попадёт в окно. Рамку двигать пальцем, двумя пальцами — размер -->
+<div id="crop" hidden>
+  <div class="edTop"><b id="cropTitle"></b><button id="cropClose" class="tiny" title="Готово">✓ Готово</button></div>
+  <div class="hint">Жёлтая рамка — то, что будет видно в окне. Двигайте рамку пальцем, двумя пальцами — больше/меньше (только пропорционально).</div>
+  <canvas id="cropCv"></canvas>
+  <div class="row"><button id="cropBig" class="tiny" title="рамка больше — видно больше">− мельче</button><button id="cropSmall" class="tiny" title="рамка меньше — крупнее лицо">+ крупнее</button><button id="cropReset">Весь кадр</button></div>
 </div>
 <div id="fab"><button id="fUndo" title="Отменить" disabled>↶</button><button id="fHome" title="На начало">⏮</button><button id="fPlay" title="Слушать всё">▶</button><button id="fStop" title="Стоп" disabled>■</button></div>
 <div class="hidden-media" id="media"><video id="live" muted playsinline autoplay></video></div>
@@ -260,8 +297,17 @@ async function getCam() {
   });
   $('#live').srcObject = cam;
   await $('#live').play().catch(() => {});
+  showCamBtn();
   return cam;
 }
+// 👁 Просмотр: включить камеру заранее, ничего не записывая; ещё раз — выключить
+function stopCam() {
+  if (!cam) return;
+  cam.getTracks().forEach(t => t.stop()); cam = null; $('#live').srcObject = null;
+  if (tap) { try { tap.node.disconnect(); } catch (e) {} tap = null; }   // прослушка шла от этой камеры
+  showCamBtn();
+}
+function showCamBtn() { const b = $('#bCam'); b.textContent = cam ? '👁 Скрыть' : '👁 Просмотр'; b.classList.toggle('on', !!cam); }
 
 function pickMime() {
   for (const m of ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'])
@@ -411,6 +457,20 @@ function startMetronome(t0, from) {
   s.start(t0, from % buf.duration);
   return s;
 }
+// Перед сохранением: каждое видео встаёт на свой первый кадр и этот кадр уже разобран (не чёрный).
+// Спрятанное видео на паузе само кадр не рисует — пускаем его на мгновение и ждём, пока картинка появится.
+async function warmVideos(list, from) {
+  await Promise.all(list.map(async t => {
+    const v = t.video; if (!v) return;
+    const at = Math.max(0, Math.min(t.buffer.duration - 0.05, from + offsetOf(t)));
+    await seekTo(v, at);
+    if (v.readyState < 2) {
+      try { await v.play(); } catch (e) {}
+      await new Promise(r => { const t0 = Date.now(), w = () => v.readyState >= 2 || Date.now() - t0 > 3000 ? r() : setTimeout(w, 50); w(); });
+      v.pause(); await seekTo(v, at);
+    }
+  }));
+}
 function stopTracks() {
   if (play) for (const s of play.srcs) { try { s.stop(); } catch (e) {} }
   play = null;
@@ -422,7 +482,7 @@ function syncVideos(T) {
     if (!play.pick(t)) { if (!t.video.paused) t.video.pause(); continue; }
     const v = t.video, want = T + offsetOf(t);
     if (want < 0 || want > t.buffer.duration) { if (!v.paused) v.pause(); continue; }
-    if (v.paused) { v.currentTime = want; v.play().catch(() => {}); }
+    if (v.paused) { if (Math.abs(v.currentTime - want) > 0.08) v.currentTime = want; v.play().catch(() => {}); }
     else if (Math.abs(v.currentTime - want) > 0.2) v.currentTime = want;
   }
 }
@@ -499,10 +559,11 @@ function drawCover(v, x, y, w, h, fr) {
 function frame() { if (state !== 'export') draw(); requestAnimationFrame(frame); }
 // Подсказка «где вступать»: общая волна того, что звучит в наушниках, бежит внизу видео.
 // Линия «сейчас» на трети полосы — справа видно, что будет через 2 секунды. Только на экране, не в видео.
+const guideTop = () => $('#guidePos').value !== 'bottom';   // сверху — ближе к камере, глаза смотрят в объектив
 function drawGuide(T, k) {
   const heardNow = tracks.filter(t => heard(t) && (!play || play.pick(t)));
   if (!heardNow.length) return;
-  const h = H * 0.12, y = H - h - 8 * k, start = T - 1, mid = y + h / 2;
+  const h = H * 0.12, y = guideTop() ? 8 * k : H - h - 8 * k, start = T - 1, mid = y + h / 2;
   g.fillStyle = 'rgba(30,24,20,.55)'; g.fillRect(0, y, W, h);
   for (let px = 0; px < W; px += 2) {
     const tau = start + px / W * SPAN; let v = 0;
@@ -526,7 +587,7 @@ function draw() {
   if (ed.open) { if (state === 'play' && T !== null) ed.T = Math.max(0, T); drawEd(); }   // экран ножниц едет за песней
   if (state === 'countdown') T = -countdown;   // во время 3-2-1 уже видно первое вступление
   g.fillStyle = '#2b2520'; g.fillRect(0, 0, W, H);
-  const shown = tracks.filter(t => t.video && t.on && t !== replacing);
+  const shown = tracks.filter(t => t.video && t.on && t !== replacing && (!exportPick || exportPick(t)));
   const vids = shown.map(t => t.video);
   const showLive = cam && state !== 'export' && state !== 'play' && vids.length < MAX_TRACKS;
   const all = showLive ? [...vids, $('#live')] : vids;
@@ -547,9 +608,10 @@ function draw() {
   }
   if (showLive && rects.length) {
     const [x, y, w, h] = rects[rects.length - 1];
+    const below = guideTop() && T !== null && y < H * 0.12 + 16 * k ? H * 0.12 + 8 * k : 0;   // надпись — под волной, не под ней
     g.font = `bold ${28 * k}px system-ui`; g.textAlign = 'left';
     g.fillStyle = state === 'rec' ? '#e5402f' : 'rgba(255,255,255,.8)';
-    g.fillText(state === 'rec' ? '● ЗАПИСЬ' : 'камера', x + 14 * k, y + 40 * k);
+    g.fillText(state === 'rec' ? '● ЗАПИСЬ' : 'камера', x + 14 * k, y + below + 40 * k);
     if (state === 'countdown') {
       g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x, y, w, h);
       g.fillStyle = '#fff'; g.font = `bold ${200 * k}px system-ui`; g.textAlign = 'center';
@@ -565,7 +627,7 @@ function draw() {
 // ---------- интерфейс ----------
 function msg(t) { $('#msg').textContent = $('#edMsg').textContent = t || ''; }   // и на экране ножниц
 function busy(b) {
-  for (const id of ['#bRec', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj', '#bFaces', '#lay', '#rowH', '#q']) $(id).disabled = b;
+  for (const id of ['#bRec', '#bCam', '#bExportEach', '#bPlay', '#bExport', '#bCal', '#bClear', '#fMinus', '#fmt', '#pos', '#bSaveProj', '#bSaveProj2', '#bLoadProj', '#bFaces', '#lay', '#rowH', '#q']) $(id).disabled = b;
   $('#bStop').disabled = !b;
   $('#fPlay').disabled = b; $('#fStop').disabled = !b;
   stageTouch();
@@ -618,7 +680,7 @@ function renderList() {
     d.innerHTML = `
       <input type="checkbox" ${t.on ? 'checked' : ''} title="включён">
       <span class="name" title="нажмите, чтобы переименовать"></span>
-      <span class="btns"><button class="cut lk" title="ножницы: тишина на участке">✂</button><button class="lock" title="замок: защита от случайных изменений">${t.locked ? '🔒' : '🔓'}</button><button class="solo" title="послушать только этот голос">▶</button>${t.kind === 'video' ? '<button class="align lk" title="выровнять по первому голосу">🎯</button><button class="redo lk" title="перезаписать на этом месте">⟳</button>' : ''}<button class="del lk" title="удалить">✕</button></span>
+      <span class="btns"><button class="cut lk" title="ножницы: тишина на участке">✂</button><button class="lock" title="замок: защита от случайных изменений">${t.locked ? '🔒' : '🔓'}</button><button class="solo" title="послушать только этот голос">▶</button>${t.kind === 'video' ? '<button class="align lk" title="выровнять по первому голосу">🎯</button><button class="redo lk" title="перезаписать на этом месте">⟳</button><button class="crop lk" title="кадр вручную: рамкой">⬚</button><button class="solov" title="сохранить видео только этого голоса">🎬</button>' : ''}<button class="del lk" title="удалить">✕</button></span>
       <label>громкость <input class="vol lk" type="range" min="0" max="1.5" step="0.05" value="${t.vol}"></label>
       <label>сдвиг <button class="nudge lk" data-d="-10" title="позже на 10 мс">−</button><input class="fine lk" type="range" min="-2000" max="2000" step="10" value="${t.fine}"><button class="nudge lk" data-d="10" title="раньше на 10 мс">+</button> <span class="fineV"></span></label>
       <div class="fineHint">◀ − позже · раньше + ▶</div>
@@ -643,6 +705,10 @@ function renderList() {
     d.querySelector('.cut').onclick = () => openEd('voice', t);
     const al = d.querySelector('.align');
     if (al) al.onclick = () => alignVoice(t);
+    const cr = d.querySelector('.crop');
+    if (cr) cr.onclick = () => openCrop(t);
+    const sv = d.querySelector('.solov');
+    if (sv) sv.onclick = () => exportSolo(t);
     const redo = d.querySelector('.redo');
     if (redo) redo.onclick = () => { if (confirm(`Перезаписать «${t.name}»? Прошлый дубль можно вернуть кнопкой ↶ Отменить.`)) recordVoice(t); };
     // В память телефона — только когда палец отпущен (change): сохраняется всё видео целиком.
@@ -773,11 +839,11 @@ const TAP_SRC = `class Tap extends AudioWorkletProcessor {
   }
 }
 registerProcessor('tap', Tap);`;
-let tap = null;
+let tap = null, tapLoaded = false;
 async function getTap() {
   if (tap) return tap;
   const c = ac();
-  await c.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP_SRC], { type: 'application/javascript' })));
+  if (!tapLoaded) { await c.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP_SRC], { type: 'application/javascript' }))); tapLoaded = true; }
   const node = new AudioWorkletNode(c, 'tap'), mute = c.createGain();
   mute.gain.value = 0; c.createMediaStreamSource(cam).connect(node); node.connect(mute); mute.connect(c.destination);
   tap = { node, chunks: [] };
@@ -886,9 +952,15 @@ async function recordVoice(target) {
   busy(false); keepAwake(false);
 }
 $('#bRec').onclick = () => recordVoice(null);
+$('#bCam').onclick = async () => {
+  if (cam) return stopCam(), msg('');
+  try { await getCam(); msg('Камера включена — так вы будете видны в записи. Ещё раз «👁» — выключить.'); }
+  catch (e) { msg('Нет доступа к камере: ' + e.message); }
+};
 
 $('#bStop').onclick = () => {
   if (state === 'countdown') { state = 'idle'; return; }
+  if (state === 'export') exportStopped = true;   // при «каждый голос отдельно» — остальные уже не сохранять
   if (stopNow) stopNow();
   else if (state === 'play') endPlay(false);
 };
@@ -925,7 +997,7 @@ $('#stage').onclick = e => {
   renderList();
   if (state !== 'idle') busy(true);   // идёт прослушивание — новая карточка тоже заблокирована
   const t = frameable();
-  if (t) msg(`«${t.name}»: картинку можно подвинуть пальцем, двумя пальцами — увеличить. ↶ — отменить.`);
+  if (t) msg(`«${t.name}»: кадр — кнопка ⬚ у голоса (рамкой), или прямо здесь пальцем, двумя пальцами — увеличить. ↶ — отменить.`);
   else if (selectedId && hit.t.locked) msg(`«${hit.t.name}» под замком 🔒 — откройте замок, чтобы поправить кадр.`);
 };
 // Кадр выбранного голоса правится пальцами прямо на видео — если голос не под замком
@@ -1003,12 +1075,15 @@ function latin(s) {
   return [...s.toLowerCase()].map(ch => TR[ch] ?? ch).join('').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
 }
 
-$('#bExport').onclick = async () => {
-  if (!songLength()) return msg('Пока нечего сохранять.');
+let exportPick = null, exportStopped = false;   // при сохранении одного голоса — только он и в кадре, и в звуке
+// pick — какие голоса (null — все включённые), box — куда положить ссылку, tag — к имени файла, label — для сообщений
+async function exportVideo(pick, box, tag, label) {
   const [from, to] = range(), len = to - from;   // с обрезкой ✂ — только кусок песни
   const c = ac(); busy(true); state = 'export'; keepAwake(true);
-  msg(`Собираю видео — песня проиграется целиком (${Math.ceil(len)} с). Не выключайте экран.`);
-  $('#out').innerHTML = '';
+  exportPick = pick; exportStopped = false; const lay = $('#lay').value; if (pick) $('#lay').value = 'grid';   // один голос — во весь кадр
+  msg(`Собираю видео${label} — песня проиграется целиком (${Math.ceil(len)} с). Не выключайте экран.`);
+  box.innerHTML = '';
+  await warmVideos(tracks.filter(t => t.video && heard(t) && (!pick || pick(t))), from);
   const dest = c.createMediaStreamDestination(); limiter.connect(dest);
   // Песня начнётся только после старта записи, а планшет не стартует запись, пока звук пустой. Неслышный «фон»
   // (−80 дБ) с первой секунды разрывает этот круг.
@@ -1028,21 +1103,45 @@ $('#bExport').onclick = async () => {
   for (const [m, k] of tries) {
     W = Math.round(FW * k / 2) * 2; H = Math.round(FH * k / 2) * 2; $('#stage').width = W; $('#stage').height = H;
     const out = new MediaStream([...$('#stage').captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-    try { res = await recordStream(out, m, Math.round(Math.max(2e6, 8e6 * k * k)), 0.15, t0 => startTracks(t0, from), len + 0.45); size = `${W}×${H}`; }
+    draw();   // первый кадр уже на холсте до старта записи
+    try { res = await recordStream(out, m, Math.round(Math.max(2e6, 8e6 * k * k)), 0.15, t0 => startTracks(t0, from, pick || undefined), len + 0.45); size = `${W}×${H}`; }
     catch (e) { why += `${m.split(';')[0]} ${W}×${H}: ${e.message}. `; msg('Пробую по-другому…'); }
     out.getVideoTracks().forEach(t => t.stop()); stopTracks();
     if (res || state !== 'export') break;
   }
   stopNow = null; clearInterval(tick);
   hum.stop(); limiter.disconnect(dest); dest.stream.getTracks().forEach(t => t.stop());
-  setFormat(fmtKey);
+  setFormat(fmtKey); exportPick = null; $('#lay').value = lay;
   state = 'idle'; busy(false); keepAwake(false);
-  if (!res) return msg('Видео не сохранилось. ' + why);
+  if (!res) { msg('Видео не сохранилось. ' + why); return false; }
   const { chunks, type } = res;
   const ext = type.includes('mp4') ? 'mp4' : 'webm';
   // Для «Отправить» Android хочет латинское имя и тип без кодеков (video/mp4)
-  offerFile($('#out'), new File(chunks, fileName('', ext), { type: type.split(';')[0] }), msg);
-  msg(`Видео готово: ${ext}, ${size}.` + (why ? ` (Не вышло: ${why})` : ''));
+  offerFile(box, new File(chunks, fileName(tag, ext), { type: type.split(';')[0] }), msg);
+  msg(`Видео готово${label}: ${ext}, ${size}.` + (why ? ` (Не вышло: ${why})` : ''));
+  return !exportStopped;
+}
+$('#bExport').onclick = () => {
+  if (!songLength()) return msg('Пока нечего сохранять.');
+  $('#outMore').innerHTML = ''; exportVideo(null, $('#out'), '', '');
+};
+// Один голос — своим файлом; ссылки на такие файлы копятся под общей, по одной на голос
+function soloBox(t) {
+  let b = $('#outMore').querySelector(`[data-id="${t.id}"]`);
+  if (!b) { b = document.createElement('div'); b.dataset.id = t.id; $('#outMore').appendChild(b); }
+  return b;
+}
+function exportSolo(t) {
+  if (!heard(t)) { msg(`«${t.name}» выключен галочкой — включите его.`); return Promise.resolve(false); }
+  return exportVideo(x => x === t, soloBox(t), '_' + (latin(t.name) || 'golos'), ` «${t.name}»`);
+}
+$('#bExportEach').onclick = async () => {
+  const list = tracks.filter(t => t.video && heard(t));
+  if (!list.length) return msg('Нет включённых голосов с видео.');
+  const [a, b] = range();
+  if (!confirm(`Сохранить ${list.length} видео по отдельности? Песня проиграется ${list.length} раз(а), около ${Math.ceil(list.length * (b - a) / 60)} мин. Экран не выключать.`)) return;
+  $('#outMore').innerHTML = '';
+  for (const t of list) if (!await exportSolo(t)) break;   // «Стоп» — остальные не сохраняем
 };
 
 function fileName(tag, ext) {
@@ -1120,6 +1219,13 @@ $('#bSendNotes').onclick = () => {
     .catch(() => $('#notesMsg').textContent = 'Не получилось — выделите текст и скопируйте вручную.');
   if (navigator.share) navigator.share({ title: 'Сама себе хор — заметки', text }).catch(e => { if (e.name !== 'AbortError') copy(); });
   else copy();
+};
+
+$('#bSaveNotes').onclick = () => {
+  const text = $('#notes').value.trim();
+  if (!text) return $('#notesMsg').textContent = 'Заметки пустые.';
+  offerFile($('#notesOut'), new File([text + '\n'], fileName('_zametki', 'txt'), { type: 'text/plain' }), m => $('#notesMsg').textContent = m);
+  $('#notesMsg').textContent = 'Нажмите «⬇ Скачать» — файл ляжет в «Загрузки».';
 };
 
 // ---------- подстройка задержки ----------
@@ -1200,18 +1306,29 @@ function alignVoice(t) {
 }
 
 // ---------- 🙂 выровнять головы: находим лицо в каждом голосе и ставим кадры так, чтобы головы были одного размера
-// и на одной высоте. Модель Google MediaPipe (лица) грузится из интернета только при нажатии, потом из кэша.
-const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+// и на одной высоте. Модель Google MediaPipe (лица) грузится только при нажатии, потом из кэша.
+// С 3.1 файлы лежат на нашем же сайте (папка mp рядом со страницей): чужие серверы с планшета бывали недоступны.
+// Нашей папки нет (страница открыта не с сайта) — берём с прежних серверов.
+const MP_SOURCES = [
+  [new URL('mp/', location.href).href, new URL('mp/face.tflite', location.href).href],
+  ['https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/',
+   'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite'],
+];
 let faceDet = null;
 async function getFaceDet() {
   if (faceDet) return faceDet;
-  const { FaceDetector, FilesetResolver } = await import(MP + '/vision_bundle.mjs');
-  const files = await FilesetResolver.forVisionTasks(MP + '/wasm');
-  faceDet = await FaceDetector.createFromOptions(files, {
-    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite' },
-    runningMode: 'IMAGE', minDetectionConfidence: 0.5,
-  });
-  return faceDet;
+  let why = '';
+  for (const [base, model] of MP_SOURCES) {
+    try {
+      const { FaceDetector, FilesetResolver } = await import(base + 'vision_bundle.mjs');
+      const files = await FilesetResolver.forVisionTasks(base + 'wasm');
+      faceDet = await FaceDetector.createFromOptions(files, {
+        baseOptions: { modelAssetPath: model }, runningMode: 'IMAGE', minDetectionConfidence: 0.5,
+      });
+      return faceDet;
+    } catch (e) { why = e.message || String(e); }
+  }
+  throw new Error(why);
 }
 function seekTo(v, s) {
   return new Promise(r => { const ok = () => { v.removeEventListener('seeked', ok); r(); }; v.addEventListener('seeked', ok); v.currentTime = s; setTimeout(ok, 2000); });
@@ -1291,7 +1408,7 @@ function openEd(mode, t) {
       'потом на конец → «…досюда». Можно прямо во время прослушивания. Нажать на серое — вернуть звук. Запись не сдвигается.'
     : 'Красную линию — туда, где песня должна начаться → «Начало здесь», так же конец. Слушать и видео — только между ними, ' +
       'записи не портятся. Волну двигайте пальцем, двумя пальцами — увеличить.';
-  $('#edSolo').hidden = !v;
+  $('#edSolo').hidden = $('#edSong').hidden = !v;
   $('#edA').textContent = v ? '✂ Тишина отсюда' : '⟦ Начало здесь';
   $('#edB').textContent = v ? '…досюда' : 'Конец здесь ⟧';
   $('#edReset').textContent = v ? 'Вернуть звук везде у этого голоса' : 'Без обрезки (вся песня)';
@@ -1399,7 +1516,92 @@ $('#edReset').onclick = () => {
   rememberSet(ed.t); ed.t.mutes = []; ed.mark = null; save(ed.t); drawEd(); msg('Звук вернулся везде. Можно ↶ Отменить.');
 };
 $('#bTrim').onclick = () => openEd('song');
+$('#edSong').onclick = () => { const T = ed.T; if (state === 'play') endPlay(false); setPos(T); openEd('song'); };
 window.addEventListener('resize', () => { if (ed.open) fitEd(); });
+
+// ---------- ⬚ кадр вручную: видно всё видео голоса, жёлтая рамка — что попадёт в окно ----------
+// Рамку двигает палец (рамка едет за пальцем), два пальца — больше/меньше. Пишется тот же t.frame, что и у 🙂.
+const crop = { t: null, w: 1, h: 1, edited: false };
+function cropRectOf(t) {   // окно этого голоса — как в готовом видео
+  const shown = tracks.filter(x => x.video && x.on && x !== replacing), r = layout(shown.length)[shown.indexOf(t)];
+  return r ? [r[2], r[3]] : [W, H];
+}
+async function openCrop(t) {
+  if (t.locked) return msg(`«${t.name}» под замком 🔒 — откройте замок, чтобы поправить кадр.`);
+  if (state !== 'idle') return;
+  if (!t.video.videoWidth) return msg('Видео ещё не загрузилось — попробуйте через секунду.');
+  [crop.w, crop.h] = cropRectOf(t); crop.t = t; crop.edited = false;
+  $('#cropTitle').textContent = `⬚ Кадр «${t.name}»`;
+  $('#crop').hidden = false; document.body.style.overflow = 'hidden';
+  fitCrop();
+  const v = t.video, off = Math.max(0, offsetOf(t)), T = +$('#pos').value || 0;
+  await seekTo(v, Math.min(t.buffer.duration - 0.1, off + (T > 0.5 ? T : (t.buffer.duration - off) * 0.3)));   // где видно лицо
+  if (v.readyState < 2) { try { await v.play(); } catch (e) {} await new Promise(r => setTimeout(r, 300)); v.pause(); }
+  drawCrop();
+}
+function fitCrop() {
+  const cv = $('#cropCv'), r = window.devicePixelRatio || 1;
+  cv.width = Math.round(cv.clientWidth * r); cv.height = Math.round(cv.clientHeight * r);
+  drawCrop();
+}
+function cropView() {   // как видео вписано в холст: масштаб и угол
+  const cv = $('#cropCv'), v = crop.t.video, s = Math.min(cv.width / v.videoWidth, cv.height / v.videoHeight);
+  return { s, ox: (cv.width - v.videoWidth * s) / 2, oy: (cv.height - v.videoHeight * s) / 2 };
+}
+function drawCrop() {
+  if (!crop.t) return;
+  const cv = $('#cropCv'), x = cv.getContext('2d'), v = crop.t.video, { s, ox, oy } = cropView(), vw = v.videoWidth, vh = v.videoHeight;
+  x.fillStyle = '#2b2520'; x.fillRect(0, 0, cv.width, cv.height);
+  x.save(); x.translate(ox + vw * s, oy); x.scale(-1, 1); x.drawImage(v, 0, 0, vw * s, vh * s); x.restore();   // зеркально, как в видео
+  const c = cropOf(v, crop.w, crop.h, crop.t.frame), rx = ox + (vw - c.sx - c.sw) * s, ry = oy + c.sy * s, rw = c.sw * s, rh = c.sh * s;
+  x.fillStyle = 'rgba(0,0,0,.55)';   // всё, что за рамкой, — притушено
+  x.fillRect(ox, oy, vw * s, ry - oy); x.fillRect(ox, ry + rh, vw * s, oy + vh * s - ry - rh);
+  x.fillRect(ox, ry, rx - ox, rh); x.fillRect(rx + rw, ry, ox + vw * s - rx - rw, rh);
+  const L = Math.max(3, cv.width / 200);
+  x.strokeStyle = '#e2b54a'; x.lineWidth = L; x.strokeRect(rx, ry, rw, rh);
+  x.strokeStyle = 'rgba(226,181,74,.45)'; x.lineWidth = L / 2;   // линии третей — куда ставить глаза
+  for (const f of [1 / 3, 2 / 3]) { x.beginPath(); x.moveTo(rx, ry + rh * f); x.lineTo(rx + rw, ry + rh * f); x.moveTo(rx + rw * f, ry); x.lineTo(rx + rw * f, ry + rh); x.stroke(); }
+}
+// Новый кадр: z и центр, приведённые к допустимым (рамка не вылезает за видео)
+function setCrop(fr) {
+  const t = crop.t, v = t.video;
+  if (!crop.edited) { rememberSet(t); crop.edited = true; t.frameAuto = false; }   // правлено руками — 🙂 больше не трогает
+  fr.z = Math.max(1, Math.min(5, fr.z));
+  const c = cropOf(v, crop.w, crop.h, fr);
+  t.frame = { z: fr.z, cx: (c.sx + c.sw / 2) / v.videoWidth, cy: (c.sy + c.sh / 2) / v.videoHeight };
+  drawCrop();
+}
+const curFrame = () => ({ ...(crop.t.frame || { z: 1, cx: 0.5, cy: 0.5 }) });
+(() => {
+  const cv = $('#cropCv'), pts = new Map(); let pinch = null;
+  const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+  cv.onpointerdown = e => {
+    try { cv.setPointerCapture(e.pointerId); } catch (er) {}
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) pinch = { d: dist(), z: curFrame().z };
+  };
+  cv.onpointermove = e => {
+    const p = pts.get(e.pointerId); if (!p || !crop.t) return;
+    const r = window.devicePixelRatio || 1, dx = (e.clientX - p.x) * r, dy = (e.clientY - p.y) * r;
+    p.x = e.clientX; p.y = e.clientY;
+    const fr = curFrame();
+    if (pts.size === 2 && pinch) fr.z = pinch.z * pinch.d / dist();   // раздвинуть пальцы — рамка больше
+    else if (pts.size === 1) { const { s } = cropView(), v = crop.t.video; fr.cx -= dx / s / v.videoWidth; fr.cy += dy / s / v.videoHeight; }   // видео зеркальное
+    else return;
+    setCrop(fr);
+  };
+  const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+  cv.onpointerup = up; cv.onpointercancel = up;
+})();
+$('#cropBig').onclick = () => { const fr = curFrame(); fr.z /= 1.15; setCrop(fr); };
+$('#cropSmall').onclick = () => { const fr = curFrame(); fr.z *= 1.15; setCrop(fr); };
+$('#cropReset').onclick = () => setCrop({ z: 1, cx: 0.5, cy: 0.5 });
+$('#cropClose').onclick = () => {
+  const t = crop.t; crop.t = null;
+  $('#crop').hidden = true; document.body.style.overflow = '';
+  if (t) { t.video.currentTime = Math.max(0, offsetOf(t)); if (crop.edited) { save(t); msg(`Кадр «${t.name}» сохранён. Не понравится — ↶ Отменить.`); } }
+};
+window.addEventListener('resize', () => { if (crop.t) fitCrop(); });
 
 // ---------- минусовка и очистка ----------
 $('#fMinus').onchange = async e => {
@@ -1435,6 +1637,7 @@ $('#bClear').onclick = async () => {
     if (!$('#lay').value) $('#lay').value = 'row';   // было «rowfull» в 2.8 — такого варианта больше нет
     $('#rowH').value = localStorage.getItem('choir.rowH') || 0.75;
     $('#q').value = localStorage.getItem('choir.q') || '1';
+    $('#guidePos').value = localStorage.getItem('choir.guide') || 'top';
     [songIn, songOut] = JSON.parse(localStorage.getItem('choir.trim') || '[0,0]');
     $('#notes').value = localStorage.getItem('choir.notes') || '';
   } catch (e) {}
@@ -1445,6 +1648,7 @@ $('#bClear').onclick = async () => {
   $('#lay').onchange = () => { keep('choir.lay', $('#lay').value); $('#rowHBox').hidden = $('#lay').value !== 'row'; fitFaces(); };
   $('#rowH').onchange = () => { keep('choir.rowH', $('#rowH').value); fitFaces(); };
   $('#q').onchange = () => keep('choir.q', $('#q').value);
+  $('#guidePos').onchange = () => keep('choir.guide', $('#guidePos').value);
   $('#rowHBox').hidden = $('#lay').value !== 'row';
   $('#notes').oninput = () => keep('choir.notes', $('#notes').value);
   if (!window.MediaRecorder || !navigator.mediaDevices) { msg('Этот браузер не умеет записывать. Откройте в Chrome.'); busy(true); $('#bStop').disabled = true; return; }
