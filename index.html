@@ -63,6 +63,10 @@
   .lvlGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; max-height: 38vh; overflow-y: auto; margin: 8px 0 2px; padding: 2px; }
   .card .lvlGrid button { margin: 0; padding: 8px 0; font-size: 16px; border-radius: 9px; min-width: 0; }
   .card .lvlGrid button.boss { background: #c4452b; color: #fff; }
+  .card #ovButtons.compact button { font-size: 16px; padding: 8px 14px; margin: 5px 4px 0; border-radius: 11px; }
+  .scanBox { position: relative; overflow: hidden; border-radius: 10px; background: #000; }
+  .scanBox video { display: block; width: 100%; max-height: 40vh; object-fit: cover; }
+  .scanBox i { position: absolute; inset: 12% 22%; border: 4px solid #ffd54a; border-radius: 14px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.3); pointer-events: none; }
   .profList { max-height: 32vh; overflow-y: auto; margin: 4px 0; }
   .profRow { display: flex; align-items: center; gap: 6px; margin: 6px 0; text-align: left; }
   .profRow > span { flex: 1; min-width: 0; }
@@ -10488,7 +10492,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const GAME_VERSION = 'Версия 1.5.1 · 09.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
+const GAME_VERSION = 'Версия 1.5.2 · 09.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
 const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
@@ -12920,6 +12924,7 @@ if (/Android/.test(navigator.userAgent) && /YaBrowser|Yowser|MiuiBrowser|UCBrows
 // ───────────────────────── Экраны ─────────────────────────
 function showOverlay(title, html, buttons, onConfirm) {
   $('ovTitle').textContent = title;
+  $('ovButtons').classList.remove('compact');
   $('ovText').innerHTML = html;
   const box = $('ovButtons'); box.innerHTML = '';
   for (const b of buttons) {
@@ -12985,6 +12990,7 @@ function menu() {
     '<p class="small" style="text-align:center; color:#8a7d60; margin:2px 0 0">' + GAME_VERSION + '</p>' + wheelBoxHtml(),
     [{ label: 'Обычная игра', fn: () => { gameMode = 'classic'; loadSave(); modeMenu(); } }, { label: 'Ангар', cls: 'red', fn: showHangar },
      { label: 'Идеи', cls: 'gray', fn: showIdeas }, { label: 'Как играть', cls: 'gray', fn: showHelp }, { label: 'Перенос прогресса', cls: 'gray', fn: showTransfer }]
+      .concat(window.AndroidApp && AndroidApp.exit ? [{ label: 'Выйти из игры', cls: 'gray', fn: exitGame }] : [])
       .concat(author ? [{ label: 'Выйти из режима автора', cls: 'gray', fn: () => { author = false; loadSave(); menu(); } }] : []));
   wheelBoxInit();
   $('help').textContent = '';
@@ -13187,9 +13193,12 @@ function qrDraw(canvas, text, px) {                           // рисует ч
 // Ссылка для пересылки: <адрес игры>#tk=<тот же код в «url-безопасной» записи>; игра сама предлагает загрузить его при открытии.
 function showTransfer() {
   state = 'ask';
-  showOverlay('Перенос прогресса', '<p class="small">Где игра уже идёт: «QR-код» — покажи его второму устройству, а там нажми «Сканировать QR». «Поделиться» — отправь ссылку (Telegram, Max, почта…). Или «Показать код» — и вставь его там в это поле. Свой прежний прогресс перед загрузкой сохраняется в «Профилях».</p>' +
-    '<textarea id="trCode" class="ideaField" rows="4" placeholder="Код прогресса"></textarea><p class="small" id="trMsg"></p>',
-    [{ label: 'QR-код', fn: trQr }, { label: 'Сканировать QR', fn: trScan }, { label: 'Профили', cls: 'blue', fn: () => showProfiles() }, { label: 'Поделиться', fn: trShare }, { label: 'Показать код', cls: 'blue', fn: trExport }, { label: 'Загрузить', fn: trImport }, { label: 'Назад', cls: 'gray', fn: menu }]);
+  showOverlay('Перенос прогресса',
+    '<textarea id="trCode" class="ideaField" rows="3" placeholder="Код прогресса (сюда вставляют код и жмут «Загрузить»)"></textarea>' +
+    '<p class="small" id="trMsg">Где игра идёт: «QR-код» или «Поделиться» (или «Показать код»). Куда переносим: «Сканировать QR» либо вставь код выше и «Загрузить». Свой прежний прогресс перед загрузкой сохраняется в «Профилях».</p>',
+    [{ label: 'QR-код', fn: trQr }, { label: 'Сканировать QR', fn: trScan }, { label: 'Профили', cls: 'blue', fn: () => showProfiles() }, { label: 'Поделиться', fn: trShare },
+     { label: 'Показать код', cls: 'blue', fn: trExport }, { label: 'Загрузить', fn: trImport }, { label: 'Назад', cls: 'gray', fn: menu }]);
+  $('ovButtons').classList.add('compact');
 }
 const trKeys = o => Object.keys(o).filter(k => k.indexOf('tanks3d_') === 0 && !/_author$/.test(k));
 function trCollect() {
@@ -13228,13 +13237,18 @@ async function trDecode(raw) {
   if (s.indexOf('Z.') === 0) return JSON.parse(new TextDecoder().decode(await new Response(new Blob([unb64u(s.slice(2))]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()));
   return JSON.parse(new TextDecoder().decode(unb64u(s)));
 }
-async function trQr() {           // QR на отдельном экране: максимально крупный и без лишнего
+async function trQr() {           // QR на весь экран (белый фон): занимает всю короткую сторону, ничего не обрезается
   const u = await trUrl();
   if (!u) { $('trMsg').textContent = 'Пока нечего переносить — сначала поиграй.'; return; }
-  state = 'ask';
-  showOverlay('QR-код прогресса', '<canvas id="trQr" style="display:block;margin:4px auto;border-radius:6px"></canvas><p class="small">Наведи на него камеру второго устройства (там: «Перенос прогресса» → «Сканировать QR»). Яркость экрана — на максимум, держи ровно.</p>',
-    [{ label: 'Назад', cls: 'gray', fn: showTransfer }]);
-  if (!qrDraw($('trQr'), u, Math.min(innerWidth * 0.85 || 600, innerHeight * 0.6 || 600, 700))) { showTransfer(); $('trMsg').textContent = 'Прогресса слишком много для QR — используй «Поделиться».'; }
+  const box = document.createElement('div'), c = document.createElement('canvas'), tx = document.createElement('div');
+  box.id = 'qrFull';
+  box.style.cssText = 'position:fixed;inset:0;z-index:200;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center';
+  c.style.display = 'block';
+  tx.style.cssText = 'font:16px sans-serif;color:#333;margin-top:4px;text-align:center;padding:0 10px';
+  tx.textContent = 'Наведи камеру второго устройства (яркость экрана — на максимум). Нажми на экран — закрыть.';
+  box.append(c, tx); document.body.appendChild(box);
+  if (!qrDraw(c, u, Math.min(innerWidth, innerHeight - 44) - 4)) { box.remove(); $('trMsg').textContent = 'Прогресса слишком много для QR — используй «Поделиться».'; return; }
+  box.addEventListener('click', () => box.remove());
 }
 async function trShare() {
   const url = await trUrl(), m = $('trMsg');
@@ -13301,6 +13315,7 @@ function showProfiles(msg) {
       const nm = ($('profName').value.trim() || 'Профиль').slice(0, 20);
       showProfiles(profSnap(nm, false) ? 'Сохранено: ' + nm : 'Нечего сохранять — сначала поиграй (или нет места).');
     } }, { label: 'Назад', cls: 'gray', fn: showTransfer }]);
+  $('ovButtons').classList.add('compact');
   const box = $('ovText');
   box.querySelectorAll('[data-pl]').forEach(b => b.addEventListener('click', () => {
     const p = profList()[+b.dataset.pl]; if (!p) return;
@@ -13315,36 +13330,52 @@ function showProfiles(msg) {
     showProfiles('Удалено.');
   }));
 }
-// Чтение QR камерой (с 1.5): jsQR + getUserMedia. В APK нужно разрешение камеры (MainActivity.onPermissionRequest).
-let scanStream = null, scanOn = false;
+// Чтение QR камерой (с 1.5): getUserMedia + BarcodeDetector (если есть в браузере) и jsQR. В APK нужно разрешение камеры (MainActivity.onPermissionRequest).
+let scanStream = null, scanOn = false, scanN = 0, scanDet = null;
 function scanStop() { scanOn = false; if (scanStream) { scanStream.getTracks().forEach(tr => tr.stop()); scanStream = null; } }
+function scanBeep() {
+  try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.frequency.value = 1300; g.gain.value = 0.25; o.connect(g); g.connect(a.destination); o.start(); setTimeout(() => { o.stop(); a.close(); }, 160); } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(150); } catch (e) {}
+}
 function trScan() {
-  state = 'ask';
-  showOverlay('Сканировать QR', '<video id="scanVid" playsinline muted style="width:100%;max-height:46vh;background:#000;border-radius:8px"></video><canvas id="scanCv" style="display:none"></canvas><p class="small" id="scanMsg">Наведи камеру на QR-код с другого устройства (там: «Перенос прогресса» → «QR-код»).</p>',
+  state = 'ask'; scanN = 0;
+  showOverlay('Сканировать QR', '<div class="scanBox"><video id="scanVid" playsinline muted></video><i></i></div><canvas id="scanCv" style="display:none"></canvas><p class="small" id="scanMsg" style="text-align:center">Запускаю камеру…</p>',
     [{ label: 'Назад', cls: 'gray', fn: () => { scanStop(); showTransfer(); } }]);
+  $('ovButtons').classList.add('compact');
   const say = s => { const m = $('scanMsg'); if (m) m.textContent = s; };
-  if (!window.jsQR || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { say('Камера здесь недоступна. Используй «Поделиться» или «Показать код».'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { say('Камера здесь недоступна. Используй «Поделиться» или «Показать код».'); return; }
+  try { scanDet = window.BarcodeDetector ? new BarcodeDetector({ formats: ['qr_code'] }) : null; } catch (e) { scanDet = null; }
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false }).then(s => {
     const v = $('scanVid'); if (!v) { s.getTracks().forEach(tr => tr.stop()); return; }
     scanStream = s; v.srcObject = s; v.play().catch(() => {}); scanOn = true; scanTick();
-  }).catch(() => say('Нет доступа к камере. Разреши камеру для игры и попробуй ещё раз.'));
+  }).catch(() => say('Нет доступа к камере. Разреши камеру для игры (в Настройках телефона → Приложения → Танчики → Разрешения) и попробуй ещё раз.'));
 }
-function scanTick() {
+async function scanTick() {
   if (!scanOn) return;
   const v = $('scanVid'), c = $('scanCv');
   if (!v || !c) { scanStop(); return; }                           // экран закрыли
+  let data = null;
   if (v.readyState >= 2 && v.videoWidth) {
-    const w = Math.min(1024, v.videoWidth), h = Math.round(w * v.videoHeight / v.videoWidth);
-    c.width = w; c.height = h;
-    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(v, 0, 0, w, h);
-    const r = jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
-    if (r && r.data) {
-      const m = r.data.match(/#tk=(.+)$/);
-      if (m) { scanStop(); trHashStart(m[1]); return; }
-      const e = $('scanMsg'); if (e) e.textContent = 'Это не код прогресса «Танчиков».';
+    scanN++;
+    if (scanDet) { try { const r = await scanDet.detect(v); if (r.length) data = r[0].rawValue; } catch (e) { scanDet = null; } }
+    if (!data && window.jsQR) {                                    // jsQR: каждый кадр в другом размере (1280 / 800 / 480), чтобы поймать код с любого расстояния
+      const w = Math.min([1280, 800, 480][scanN % 3], v.videoWidth), h = Math.round(w * v.videoHeight / v.videoWidth);
+      c.width = w; c.height = h;
+      const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(v, 0, 0, w, h);
+      const r = jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+      if (r && r.data) data = r.data;
     }
   }
-  setTimeout(scanTick, 200);
+  const e = $('scanMsg');
+  if (!scanOn || !e) { scanStop(); return; }
+  if (data) {
+    const m = data.match(/#tk=(.+)$/);
+    if (m) { scanStop(); scanBeep(); e.textContent = 'Прочитано!'; setTimeout(() => trHashStart(m[1]), 400); return; }
+    e.textContent = 'Это не код прогресса «Танчиков».';
+  } else {
+    e.textContent = 'Наведи рамку на QR-код' + (scanN > 0 ? ' · кадров: ' + scanN : '') + (scanN > 60 ? ' · поднеси ближе/дальше, без бликов, яркость на максимум' : '');
+  }
+  setTimeout(scanTick, 150);
 }
 function ideaThanks(text) { showOverlay('Идеи для игры', '<p>' + text + '</p>', [{ label: 'Ещё идея', fn: showIdeas }, { label: 'В меню', cls: 'gray', fn: menu }]); }
 function sendIdea() {
