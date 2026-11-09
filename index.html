@@ -10492,7 +10492,7 @@ const HALF = 0.4;                                // половина разме�
 // ───────────────────────── 50 уровней ─────────────────────────
 // Первые уровни нарисованы руками (HAND_LEVELS), остальные игра собирает сама — всегда одинаково
 // для одного и того же номера. Каждый 10-й уровень — босс на открытой площадке.
-const GAME_VERSION = 'Версия 1.5.2 · 09.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
+const GAME_VERSION = 'Версия 1.5.3 · 09.11.2026';   // менять при каждом заметном обновлении (и строку в Redmi.md)
 const LEVEL_COUNT = 70, BOSS_EVERY = 10, ROBOT_FROM = 50;     // с 51-го уровня (с нуля — 50) — война с роботами (идея Вовки, 18.10.2026)
 function seededRandom(seed) { let s = seed % 2147483647; if (s <= 0) s += 2147483646; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 function mapPassable(g) {            // можно ли доехать от своей базы до всех точек появления (кирпич не в счёт — он ломается)
@@ -13337,18 +13337,23 @@ function scanBeep() {
   try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.frequency.value = 1300; g.gain.value = 0.25; o.connect(g); g.connect(a.destination); o.start(); setTimeout(() => { o.stop(); a.close(); }, 160); } catch (e) {}
   try { navigator.vibrate && navigator.vibrate(150); } catch (e) {}
 }
-function trScan() {
+function trScan() {                // сканер на весь экран (поверх «Поверни телефон»): работает и вертикально, и горизонтально
   state = 'ask'; scanN = 0;
-  showOverlay('Сканировать QR', '<div class="scanBox"><video id="scanVid" playsinline muted></video><i></i></div><canvas id="scanCv" style="display:none"></canvas><p class="small" id="scanMsg" style="text-align:center">Запускаю камеру…</p>',
-    [{ label: 'Назад', cls: 'gray', fn: () => { scanStop(); showTransfer(); } }]);
-  $('ovButtons').classList.add('compact');
+  const box = document.createElement('div'); box.id = 'scanFull';
+  box.style.cssText = 'position:fixed;inset:0;z-index:200;background:#000;overflow:hidden';
+  box.innerHTML = '<video id="scanVid" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video><canvas id="scanCv" style="display:none"></canvas>' +
+    '<i style="position:absolute;left:50%;top:50%;width:68vmin;height:68vmin;transform:translate(-50%,-50%);border:5px solid #ffd54a;border-radius:18px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none"></i>' +
+    '<div id="scanMsg" style="position:absolute;left:0;right:0;top:0;padding:10px 12px;background:rgba(0,0,0,.6);color:#fff;font:16px sans-serif;text-align:center">Запускаю камеру…</div>' +
+    '<button id="scanBack" style="position:absolute;left:50%;bottom:16px;transform:translateX(-50%);padding:12px 32px;font:700 18px sans-serif;border:0;border-radius:12px;background:#7a7468;color:#fff">Назад</button>';
+  document.body.appendChild(box);
+  $('scanBack').onclick = () => { scanStop(); box.remove(); showTransfer(); };
   const say = s => { const m = $('scanMsg'); if (m) m.textContent = s; };
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { say('Камера здесь недоступна. Используй «Поделиться» или «Показать код».'); return; }
   try { scanDet = window.BarcodeDetector ? new BarcodeDetector({ formats: ['qr_code'] }) : null; } catch (e) { scanDet = null; }
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false }).then(s => {
     const v = $('scanVid'); if (!v) { s.getTracks().forEach(tr => tr.stop()); return; }
     scanStream = s; v.srcObject = s; v.play().catch(() => {}); scanOn = true; scanTick();
-  }).catch(() => say('Нет доступа к камере. Разреши камеру для игры (в Настройках телефона → Приложения → Танчики → Разрешения) и попробуй ещё раз.'));
+  }).catch(() => say('Нет доступа к камере. Разреши камеру для игры (Настройки → Приложения → Танчики → Разрешения) и попробуй ещё раз.'));
 }
 async function scanTick() {
   if (!scanOn) return;
@@ -13370,7 +13375,7 @@ async function scanTick() {
   if (!scanOn || !e) { scanStop(); return; }
   if (data) {
     const m = data.match(/#tk=(.+)$/);
-    if (m) { scanStop(); scanBeep(); e.textContent = 'Прочитано!'; setTimeout(() => trHashStart(m[1]), 400); return; }
+    if (m) { scanStop(); scanBeep(); e.textContent = 'Прочитано!'; setTimeout(() => { const b = $('scanFull'); if (b) b.remove(); trHashStart(m[1]); }, 400); return; }
     e.textContent = 'Это не код прогресса «Танчиков».';
   } else {
     e.textContent = 'Наведи рамку на QR-код' + (scanN > 0 ? ' · кадров: ' + scanN : '') + (scanN > 60 ? ' · поднеси ближе/дальше, без бликов, яркость на максимум' : '');
